@@ -15,7 +15,6 @@
         .pulse-red { animation: pulse 1s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; border-color: #ef4444; } 50% { opacity: 0.5; border-color: #7f1d1d; } }
         
-        /* Animación de Ondas Monitor */
         .wave-container { height: 40px; width: 100%; overflow: hidden; position: relative; opacity: 0.5; margin-top: 5px; }
         .wave-svg { position: absolute; width: 200%; height: 100%; animation: move-wave 4s linear infinite; }
         @keyframes move-wave { from { transform: translateX(0); } to { transform: translateX(-50%); } }
@@ -23,6 +22,10 @@
         input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
         input[type=range]::-webkit-slider-runnable-track { height: 6px; background: #1e293b; border-radius: 10px; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 18px; width: 18px; border-radius: 50%; background: #3b82f6; cursor: pointer; margin-top: -6px; border: 2px solid #fff; }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -31,13 +34,13 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- DATOS Y EQUIPOS ---
         const EQUIPMENT_CART = [
             { category: "1. Termorregulación", items: [
                 { id: 'cuna', name: 'Cuna Radiante', correct: true },
                 { id: 'bolsa_poli', name: 'Bolsa Polietileno', correct: true },
                 { id: 'gorro', name: 'Gorro lana', correct: true },
-                { id: 'term_rectal', name: 'Termómetro Rectal (Falso)', correct: false }
+                { id: 'colchon', name: 'Colchón Térmico', correct: true },
+                { id: 'term_rectal', name: 'Termómetro Rectal', correct: false }
             ]},
             { category: "2. Ventilación y Oxígeno", items: [
                 { id: 'neopuff', name: 'NeoPuff', correct: true },
@@ -67,8 +70,8 @@
         ];
 
         const CASES = [
-            { id: 1, title: "Prematuro 27s - SDR Severo", vignette: "27 semanas. Sin corticoides antenatales. Líquido claro. Expulsivo inminente.", eg: 27, liq: "Claro", hr: 70, spo2: 45, tone: "Flácido", cry: "Apnea", surfactant: true, targetTube: "2.5" },
-            { id: 2, title: "SAM Severo - Post término", vignette: "41 semanas. Monitor fetal con bradicardia mantenida. Líquido meconial espeso.", eg: 41, liq: "Meconial", hr: 55, spo2: 35, tone: "Pobre", cry: "Jadeo", surfactant: false, targetTube: "3.5" }
+            { id: 1, title: "Prematuro 27s - SDR Severo", vignette: "27 semanas. Sin corticoides antenatales. Líquido claro. Expulsivo inminente.", eg: 27, liq: "Claro", hr: 70, spo2: 45, tone: "Flácido", cry: "Apnea", surfactant: true, targetTube: "tubo_25" },
+            { id: 2, title: "SAM Severo - Post término", vignette: "41 semanas. Monitor fetal con bradicardia mantenida. Líquido meconial espeso.", eg: 41, liq: "Meconial", hr: 55, spo2: 35, tone: "Pobre", cry: "Jadeo", surfactant: false, targetTube: "tubo_35" }
         ];
 
         const GUIDELINES = {
@@ -77,20 +80,15 @@
                 { min: 4, val: "75-80%" }, { min: 5, val: "80-85%" }, { min: 10, val: "85-95%" }
             ],
             settings: {
-                pip: "20-25 cmH2O",
-                peep: "5 cmH2O",
-                fio2_pre: "21-30%",
-                fio2_term: "21%",
-                flow: "10 L/min"
+                pip: "20-25 cmH2O", peep: "5 cmH2O", fio2_pre: "21-30%", fio2_term: "21%", flow: "10 L/min"
             }
         };
 
         function App() {
             const [gameState, setGameState] = useState('menu');
             const [currentCase, setCurrentCase] = useState(null);
-            const [guidedMode, setGuidedMode] = useState(true); // MODO PRINCIPIANTE
+            const [guidedMode, setGuidedMode] = useState(true); 
             
-            // UI States
             const [timer, setTimer] = useState(0);
             const [vitals, setVitals] = useState({ hr: 0, spo2: 0 });
             const [logs, setLogs] = useState([]);
@@ -98,28 +96,26 @@
             const [procModal, setProcModal] = useState(null);
             const [assistantHint, setAssistantHint] = useState("");
             
-            // Flow States
             const [selectedEquip, setSelectedEquip] = useState([]);
             const [askedBriefing, setAskedBriefing] = useState([]);
             const [askedBirth, setAskedBirth] = useState([]);
 
-            // Interfaz de Reanimación
-            const [mode, setMode] = useState('neopuff');
+            const [mode, setMode] = useState('neopuff'); 
             const [pip, setPip] = useState(20);
             const [fio2, setFio2] = useState(21);
             const [flow, setFlow] = useState(10);
             const [isVPPActive, setIsVPPActive] = useState(false);
             const [ventCount, setVentCount] = useState(0);
 
-            // --- REFS PARA MOTOR FÍSICO Y TIEMPO REAL ---
+            // STATE REF EXTENDIDO CON TIMESTAMPS PARA RÚBRICA
             const timerRef = useRef(null);
             const stateRef = useRef({
                 hr: 0, spo2: 0, mode: 'neopuff', pip: 20, flow: 10, 
                 sopaSteps: [], thermalActions: [], drugs: [], equips: [], lastVentTime: 0,
-                vppEffectiveness: 0
+                stableTimer: 0, timer: 0,
+                timestamps: {} // Aquí guardamos el momento exacto de cada acción
             });
 
-            // Sincronizar UI con Refs
             useEffect(() => {
                 stateRef.current.mode = mode;
                 stateRef.current.pip = pip;
@@ -130,78 +126,76 @@
             // --- LÓGICA DE ASISTENTE GUIADO ---
             useEffect(() => {
                 if (!guidedMode || gameState !== 'resus') return;
-                
-                const { hr, thermalActions, sopaSteps, drugs, mode } = stateRef.current;
+                const { hr, spo2, thermalActions, sopaSteps, drugs, mode, timestamps } = stateRef.current;
                 
                 if (timer < 30) {
-                    if (currentCase.eg < 32 && (!thermalActions.includes('bolsa') || !thermalActions.includes('gorro'))) {
+                    if (currentCase.eg < 32 && (!thermalActions.includes('bolsa_poli') || !thermalActions.includes('gorro'))) {
                         setAssistantHint("PASO 1: Es prematuro extremo. Usa BOLSA POLI y GORRO inmediatamente. NO lo seques.");
                     } else if (!thermalActions.includes('posicionar') || !thermalActions.includes('aspirar')) {
-                        setAssistantHint("PASO 1: Posiciona vía aérea en olfateo y aspira secreciones si es necesario.");
+                        setAssistantHint("PASO 1: Pasos iniciales (Olfateo, Aspirar secreciones si es necesario).");
                     } else {
-                        setAssistantHint("Evaluación Inicial completada. Revisa los signos vitales.");
+                        setAssistantHint("Evaluación Inicial completada. Revisa FC y esfuerzo respiratorio.");
                     }
-                } else if (timer >= 30 && timer < 60) {
-                    if (hr < 100 && mode !== 'neopuff' && mode !== 'ambu') {
-                        setAssistantHint("PASO 2: Frecuencia cardíaca < 100 lpm. Selecciona NeoPuff o Ambu y prepárate para ventilar.");
-                    } else if (hr < 100) {
-                        setAssistantHint("PASO 2: Inicia VPP rítmica (Ventila... dos... tres...) presionando el botón azul.");
+                } else if (hr < 100 && timer >= 30) {
+                    if (mode === 'apagado' || mode === 'freeflow') {
+                        setAssistantHint("PASO 2: FC < 100 lpm. Selecciona NeoPuff o Ambu y prepárate para ventilar.");
+                    } else if (sopaSteps.length === 0 && ventCount > 10) {
+                        setAssistantHint("PASO 3: VPP inefectiva. Aplica pasos de MR. SOPA para corregir sello y vía aérea.");
+                    } else if (hr < 60 && timer > 90) {
+                        setAssistantHint("PASO 4: FC < 60. Considera Intubación, Catéter Umbilical y Adrenalina.");
                     } else {
-                        setAssistantHint("Paciente estable. Continúa monitorizando.");
+                        setAssistantHint("PASO 2: Inicia VPP rítmica (Ventila... dos... tres...) con el botón azul.");
                     }
-                } else if (timer >= 60) {
-                    if (hr < 100 && sopaSteps.length === 0) {
-                        setAssistantHint("PASO 3: VPP inefectiva (Pecho no expande). Aplica pasos de MR. SOPA para corregir el sello y la vía aérea.");
-                    } else if (hr < 60 && !drugs.includes('adrenalina')) {
-                        setAssistantHint("PASO 4: FC < 60 lpm a pesar de VPP. Considera Adrenalina por Vía Umbilical e intubación.");
-                    } else if (currentCase.eg < 32 && hr > 100 && !drugs.includes('surfactante')) {
-                        setAssistantHint("PASO 5: Paciente estabilizado, pero pulmón inmaduro. Administra Surfactante para prevenir colapso alveolar.");
-                    } else if (hr > 100) {
-                        setAssistantHint("¡Excelente! Signos vitales en recuperación. Mantén el soporte según tabla de metas.");
+                } else if (hr >= 100) {
+                    if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
+                        setAssistantHint("PASO 5: Excelente. Paciente estabilizado pero pulmón inmaduro. Administra Surfactante.");
+                    } else if (mode !== 'apagado') {
+                        setAssistantHint("¡LOGRADO! Signos vitales estables. Cambia el modo a 'Apagado' para evaluar respiración espontánea y finalizar la reanimación.");
+                    } else {
+                        setAssistantHint("Evaluando respiración espontánea. Mantén el modo 'Apagado' unos segundos para confirmar.");
                     }
                 }
-            }, [timer, guidedMode, gameState, currentCase]);
+            }, [timer, guidedMode, gameState, currentCase, ventCount]);
 
-            // --- MOTOR DE SIMULACIÓN PRINCIPAL ---
+            // --- MOTOR DE SIMULACIÓN ---
             useEffect(() => {
                 if (gameState === 'resus') {
                     stateRef.current.hr = currentCase.hr;
                     stateRef.current.spo2 = currentCase.spo2;
+                    stateRef.current.stableTimer = 0;
                     setVitals({ hr: currentCase.hr, spo2: currentCase.spo2 });
 
                     timerRef.current = setInterval(() => {
                         setTimer(prevT => {
                             const nt = prevT + 1;
-                            if (nt === 30 && !guidedMode) addLog("[!] ALERTA 30s: Evaluar FC y respiración.", "alert");
-                            if (nt === 60 && !guidedMode) addLog("[!] MINUTO DE ORO: Si FC < 100, iniciar VPP efectiva.", "alert");
+                            stateRef.current.timer = nt; // Sincronizar timer en Ref
+                            if (nt === 30 && !guidedMode) addLog("[!] ALERTA 30s: Evaluar FC.", "alert");
+                            if (nt === 60 && !guidedMode) addLog("[!] MINUTO DE ORO.", "alert");
                             return nt;
                         });
 
                         const now = Date.now();
                         const { hr, spo2, mode, pip, flow, sopaSteps, thermalActions, drugs, equips, lastVentTime } = stateRef.current;
                         
-                        const isActivelyVenting = (now - lastVentTime) < 2500 && mode !== 'freeflow';
+                        const isActivelyVenting = (now - lastVentTime) < 2500 && (mode === 'neopuff' || mode === 'ambu');
 
-                        let hrChange = -0.5; // Deterioro basal más lento para dar tiempo de pensar
+                        let hrChange = -0.5; 
                         let spo2Change = -0.5;
 
-                        // Penalizaciones térmicas (afectan gradualmente)
                         if (currentCase.eg < 32) {
                             if (thermalActions.includes('secar')) hrChange -= 1.0; 
-                            if (!thermalActions.includes('bolsa')) hrChange -= 0.5;
+                            if (!thermalActions.includes('bolsa_poli')) hrChange -= 0.5;
                         }
 
-                        // Efectividad de VPP
                         if (isActivelyVenting) {
-                            if (flow < 8) {
+                            if (flow < 8 && mode === 'neopuff') {
                                 hrChange -= 1.0; 
                             } else {
                                 let effective = false;
                                 if (currentCase.eg < 32) {
-                                    // Pulmones duros: requieren PIP alta O estar intubado O MR SOPA avanzado
                                     if (pip >= 25 || sopaSteps.includes('P') || sopaSteps.includes('A')) effective = true;
                                 } else {
-                                    effective = true; // A término expande con PIP normal
+                                    effective = true;
                                 }
 
                                 if (effective) {
@@ -210,32 +204,41 @@
                                     if (currentCase.eg < 32 && drugs.includes('surfactante')) hrChange += 1.5; 
                                     if (drugs.includes('adrenalina') && equips.includes('cateter_umb')) hrChange += 3.0;
                                 } else {
-                                    hrChange = 0; // Ventila pero no sella, FC no sube
+                                    hrChange = 0; 
                                     spo2Change = 0;
                                 }
                             }
                         } else if (mode === 'freeflow') {
-                            hrChange = -0.1; // Flujo libre aguanta un poco, pero no mejora apnea
+                            hrChange = -0.2; 
                             spo2Change = 0.2;
+                        } else if (mode === 'apagado') {
+                            if (hr >= 100 && spo2 >= 85) {
+                                if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
+                                    hrChange = -1.0; 
+                                } else {
+                                    hrChange = 0; 
+                                    spo2Change = 0.1;
+                                    stateRef.current.stableTimer += 1;
+                                }
+                            } else {
+                                hrChange = -1.5; 
+                                spo2Change = -1.0;
+                                stateRef.current.stableTimer = 0;
+                            }
                         }
 
-                        // Calcular nuevos vitales
                         const newHr = Math.max(0, Math.min(160, hr + hrChange));
                         const newSpo2 = Math.max(0, Math.min(98, spo2 + spo2Change));
 
                         stateRef.current.hr = newHr;
                         stateRef.current.spo2 = newSpo2;
-                        
                         setVitals({ hr: Math.floor(newHr), spo2: Math.floor(newSpo2) });
 
-                        // Condiciones de Fin
                         if (newHr === 0) setGameState('fail');
-                        if (newHr > 110 && newSpo2 > 85 && stateRef.current.timer > 60) {
-                            if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
-                                // Para prematuros, ganar requiere surfactante
-                            } else {
-                                setGameState('success');
-                            }
+                        
+                        // Victoria estricta: Estable > 100 lpm, modo apagado por 4s, tras minuto de oro
+                        if (stateRef.current.stableTimer >= 4 && stateRef.current.timer > 60) {
+                            setGameState('success');
                         }
 
                     }, 1000);
@@ -245,7 +248,6 @@
                 return () => clearInterval(timerRef.current);
             }, [gameState, currentCase, guidedMode]);
 
-            // --- FUNCIONES AUXILIARES ---
             const addLog = (m, status = 'info') => {
                 const icons = { info: '🔹', correct: '✅', error: '❌', alert: '🔔', late: '⏰', warn: '⚠️' };
                 setTimer(currentT => {
@@ -256,14 +258,21 @@
 
             const formatTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
 
+            const markTimestamp = (action) => {
+                if (!stateRef.current.timestamps[action]) {
+                    stateRef.current.timestamps[action] = stateRef.current.timer;
+                }
+            };
+
             const handleVentilation = () => {
-                if (mode === 'freeflow') return;
+                if (mode === 'freeflow' || mode === 'apagado') return;
                 const now = Date.now();
                 const diff = (now - stateRef.current.lastVentTime) / 1000;
                 
                 stateRef.current.lastVentTime = now;
                 setVentCount(c => c + 1);
                 setIsVPPActive(true);
+                markTimestamp('vpp_start'); // Registrar inicio de VPP
 
                 if (stateRef.current.lastVentTime !== 0 && diff > 0.1) {
                     if (diff < 0.8) { setRhythmMsg("¡RÁPIDO!"); if(!guidedMode) addLog("Ritmo muy rápido.", "error"); }
@@ -274,11 +283,12 @@
             };
 
             const registerAction = (type, value) => {
+                markTimestamp(value);
                 if (type === 'thermal') {
                     if (!stateRef.current.thermalActions.includes(value)) {
                         stateRef.current.thermalActions.push(value);
-                        if (value === 'secar' && currentCase.eg < 32) addLog("ERROR CRÍTICO: Prematuros menores de 32 semanas NO se secan (Hipotermia).", "error");
-                        else addLog(`Acción: ${value} realizado.`, 'correct');
+                        if (value === 'secar' && currentCase.eg < 32) addLog("ERROR CRÍTICO: Prematuros menores de 32 semanas NO se secan.", "error");
+                        else addLog(`Paso: ${value.replace('_', ' ')} realizado.`, 'correct');
                     }
                 } else if (type === 'sopa') {
                     if (!stateRef.current.sopaSteps.includes(value)) {
@@ -303,17 +313,94 @@
                 setAskedBriefing([]);
                 setAskedBirth([]);
                 setVentCount(0);
-                stateRef.current = { hr: c.hr, spo2: c.spo2, mode: 'neopuff', pip: 20, flow: 10, sopaSteps: [], thermalActions: [], drugs: [], equips: [], lastVentTime: 0 };
+                setAssistantHint("");
+                stateRef.current = { 
+                    hr: c.hr, spo2: c.spo2, mode: 'neopuff', pip: 20, flow: 10, 
+                    sopaSteps: [], thermalActions: [], drugs: [], equips: [], 
+                    lastVentTime: 0, stableTimer: 0, timer: 0, timestamps: {} 
+                };
             };
 
-            // --- COMPONENTES VISUALES ---
             const WaveMonitor = ({ color }) => (
                 <div className="wave-container">
-                    <svg className="wave-svg" viewBox="0 0 200 40"><path className="wave" d="M0,20 L10,20 L15,5 L20,35 L25,20 L50,20 L60,20 L65,5 L70,35 L75,20 L100,20" stroke={color} /></svg>
+                    <svg className="wave-svg" viewBox="0 0 200 40"><path className="wave" d="M0,20 L10,20 L15,5 L20,35 L25,20 L50,20 L60,20 L65,5 L70,35 L75,20 L100,20" stroke={color} fill="transparent" strokeWidth="2" strokeLinejoin="round" /></svg>
                 </div>
             );
 
-            // --- VISTAS DE LA APLICACIÓN ---
+            // --- RÚBRICA ECOE (DEBRIEFING STRICTO CON MARGEN DE 15s) ---
+            const Debriefing = () => {
+                const t = stateRef.current.timestamps;
+                const actions = stateRef.current.thermalActions;
+                const isPremature = currentCase.eg < 32;
+                
+                const rubric = [];
+
+                // 1. Manejo Térmico Inicial (Target: < 40s)
+                if (isPremature) {
+                    if (actions.includes('secar')) {
+                        rubric.push({ text: "Error: Secaste a un prematuro <32s. Causa hipotermia severa por evaporación.", pass: false });
+                    }
+                    if (t['bolsa_poli'] && t['bolsa_poli'] <= 45) {
+                        rubric.push({ text: `Excelente: Uso precoz de Bolsa de Polietileno (${formatTime(t['bolsa_poli'])}).`, pass: true });
+                    } else if (t['bolsa_poli']) {
+                        rubric.push({ text: `Tardío: Bolsa de Polietileno aplicada tarde (${formatTime(t['bolsa_poli'])}). Ideal <40s.`, pass: 'partial' });
+                    } else {
+                        rubric.push({ text: "Falta Crítica: No usaste Bolsa de Polietileno en prematuro extremo.", pass: false });
+                    }
+                } else {
+                    if (t['secar'] && t['secar'] <= 40) rubric.push({ text: `Pasos Iniciales: Secado adecuado a tiempo (${formatTime(t['secar'])}).`, pass: true });
+                    else rubric.push({ text: "Pasos Iniciales: Retraso u omisión en secado/estimulación.", pass: false });
+                }
+
+                // 2. Vía Aérea (Olfateo)
+                if (t['posicionar'] && t['posicionar'] <= 50) rubric.push({ text: `Vía Aérea: Posición de olfateo temprana (${formatTime(t['posicionar'])}).`, pass: true });
+                else rubric.push({ text: "Vía Aérea: Retraso en permeabilizar vía aérea (Olfateo).", pass: 'partial' });
+
+                // 3. Minuto de Oro (VPP Start - Target < 60s, allowed < 75s solo)
+                if (t['vpp_start']) {
+                    if (t['vpp_start'] <= 75) rubric.push({ text: `Minuto de Oro: VPP iniciada a tiempo (${formatTime(t['vpp_start'])}).`, pass: true });
+                    else rubric.push({ text: `Minuto de Oro: VPP tardía (${formatTime(t['vpp_start'])}). Riesgo de hipoxia prolongada.`, pass: false });
+                } else {
+                    rubric.push({ text: "Falta Crítica: No se administró Presión Positiva (VPP).", pass: false });
+                }
+
+                // 4. MR SOPA (Si aplica)
+                if (t['P'] || t['A']) {
+                    rubric.push({ text: "Corrección: Uso adecuado de pasos avanzados de MR. SOPA.", pass: true });
+                }
+
+                // 5. Surfactante (Prematuros)
+                if (isPremature) {
+                    if (t['surfactante']) rubric.push({ text: `Manejo SDR: Surfactante administrado correctamente.`, pass: true });
+                    else rubric.push({ text: "Manejo SDR: Se omitió administración de Surfactante esencial.", pass: false });
+                }
+
+                // 6. Cierre
+                if (stateRef.current.mode === 'apagado' && gameState === 'success') {
+                    rubric.push({ text: "Auditoría Clínica: Se confirmó respiración espontánea apagando el soporte.", pass: true });
+                }
+
+                return (
+                    <div className="w-full mt-6 bg-slate-950 p-6 rounded-3xl border border-slate-800 text-left max-h-64 overflow-y-auto">
+                        <h3 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-4 border-b border-blue-900/50 pb-2">Auditoría Clínica (AHA Rules)</h3>
+                        <ul className="space-y-3">
+                            {rubric.map((r, i) => (
+                                <li key={i} className="flex gap-3 items-start">
+                                    {r.pass === true && <CheckCircle2 className="text-emerald-500 shrink-0" size={18} />}
+                                    {r.pass === false && <XCircle className="text-rose-500 shrink-0" size={18} />}
+                                    {r.pass === 'partial' && <AlertCircle className="text-amber-500 shrink-0" size={18} />}
+                                    <span className={`text-[11px] leading-snug font-medium ${r.pass === true ? 'text-emerald-100' : r.pass === false ? 'text-rose-200' : 'text-amber-100'}`}>{r.text}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <div className="mt-6 pt-4 border-t border-slate-800">
+                            <p className="text-[10px] text-slate-500 italic">"Clinical Tip: En un ECOE solitario, se otorga un margen de ~15 segundos extra sobre las metas de la AHA para compensar el manejo de interfaz."</p>
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- VISTAS ---
             if (gameState === 'menu') return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
                     <div className="bg-blue-600 p-8 rounded-[3rem] shadow-2xl mb-8 scale-110">
@@ -325,10 +412,10 @@
                     <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
                         <div className="flex bg-slate-950 rounded-2xl p-1 w-full border border-slate-800">
-                            <button onClick={() => setGuidedMode(true)} className={`flex-1 py-3 text-xs font-black uppercase rounded-xl transition-all ${guidedMode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}>Guiado (Aprendizaje)</button>
+                            <button onClick={() => setGuidedMode(true)} className={`flex-1 py-3 text-xs font-black uppercase rounded-xl transition-all ${guidedMode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}>Guiado (Principiante)</button>
                             <button onClick={() => setGuidedMode(false)} className={`flex-1 py-3 text-xs font-black uppercase rounded-xl transition-all ${!guidedMode ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500'}`}>ECOE (Examen)</button>
                         </div>
-                        <p className="text-[10px] text-slate-500 italic mt-2">{guidedMode ? "El asistente sugerirá qué hacer paso a paso." : "Sin ayudas. Evaluación estricta."}</p>
+                        <p className="text-[10px] text-slate-500 italic mt-2">{guidedMode ? "El asistente sugerirá qué hacer paso a paso." : "Sin ayudas. Auditoría estricta de tiempos."}</p>
                     </div>
 
                     <button onClick={startGame} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
@@ -353,7 +440,7 @@
                         {[
                             { id:'eg', q:'¿Cuál es la edad gestacional?', a:currentCase.eg + ' semanas' },
                             { id:'liq', q:'¿Cómo está el líquido amniótico?', a:currentCase.liq },
-                            { id:'riesgo', q:'¿Algún factor de riesgo adicional?', a:'Alta probabilidad de depresión.' },
+                            { id:'riesgo', q:'¿Algún factor de riesgo adicional?', a:'Alta probabilidad de depresión neonatal.' },
                             { id:'cord', q:'¿Cuál es el plan para el cordón?', a:'Clampeo según vigor al nacer.' }
                         ].map(it => (
                             <button key={it.id} onClick={() => !askedBriefing.includes(it.id) && setAskedBriefing(p => [...p, it.id])} className={`p-6 rounded-[2rem] border-2 text-left relative overflow-hidden transition-all ${askedBriefing.includes(it.id) ? 'border-blue-500 bg-blue-500/10 shadow-inner' : 'border-slate-800 bg-slate-900 shadow-lg'}`}>
@@ -386,7 +473,7 @@
                         </div>
                     ))}
                     <div className="fixed bottom-0 left-0 right-0 p-8 bg-slate-900 border-t border-slate-800 max-w-4xl mx-auto rounded-t-[3rem] z-50 shadow-2xl">
-                        <button onClick={() => setGameState('birth')} className="w-full bg-emerald-600 py-5 rounded-[2rem] font-black uppercase shadow-xl tracking-widest active:scale-95 transition-all">Cerrar Carro e Ir a Parto</button>
+                        <button onClick={() => setGameState('birth')} className="w-full bg-emerald-600 py-5 rounded-[2rem] font-black uppercase shadow-xl tracking-widest active:scale-95 transition-all">Confirmar e Ir a Parto</button>
                     </div>
                 </div>
             );
@@ -397,7 +484,7 @@
                     <div className="grid gap-4 w-full max-w-md">
                         {[
                             { id: 't', q: "¿Es de Término?", a: currentCase.eg >= 37 ? "Sí" : "No ("+currentCase.eg+" sem)" },
-                            { id: 'to', q: "¿Buen Tono?", a: currentCase.tone },
+                            { id: 'to', q: "¿Tiene Tono?", a: currentCase.tone },
                             { id: 'r', q: "¿Respira o Llora?", a: currentCase.cry }
                         ].map(it => (
                             <button key={it.id} onClick={() => !askedBirth.includes(it.id) && setAskedBirth(p => [...p, it.id])} className={`p-10 rounded-[3rem] border-2 transition-all relative overflow-hidden ${askedBirth.includes(it.id) ? 'border-amber-600 bg-amber-600/10 text-white shadow-xl scale-105' : 'border-slate-800 bg-slate-900 shadow-lg'}`}>
@@ -407,29 +494,30 @@
                             </button>
                         ))}
                     </div>
-                    <button disabled={askedBirth.length < 3} onClick={() => { setGameState('resus'); }} className="mt-14 bg-rose-600 py-5 px-20 rounded-3xl font-black uppercase tracking-widest animate-pulse shadow-2xl active:scale-95 transition-all">Iniciar Maniobras</button>
+                    <button disabled={askedBirth.length < 3} onClick={() => { setGameState('resus'); }} className="mt-14 bg-rose-600 py-5 px-20 rounded-3xl font-black uppercase tracking-widest animate-pulse shadow-2xl active:scale-95 transition-all">Iniciar Reanimación</button>
                 </div>
             );
 
             if (gameState === 'resus') return (
                 <div className="min-h-screen p-4 pb-64 flex flex-col xl:flex-row gap-6 max-w-7xl mx-auto">
                     {/* PANEL IZQUIERDO: VITALES Y CONTROLES */}
-                    <div className="flex-1 flex flex-col gap-6">
-                        <div className={`bg-black border-4 rounded-[2.5rem] p-6 shadow-2xl relative transition-colors ${timer >= 60 && vitals.hr < 100 ? 'border-rose-600 pulse-red' : 'border-slate-800'}`}>
-                            <div className="flex justify-between items-center mb-6">
-                                <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Monitor ECOE v6.0</span>
-                                <span className="text-amber-500 font-bold monitor-font text-lg">{formatTime(timer)}</span>
+                    <div className="flex-1 flex flex-col gap-6 relative">
+                        {/* Monitor "Sticky" */}
+                        <div className="sticky top-2 z-40 bg-black border-4 rounded-[2.5rem] p-6 shadow-2xl transition-colors" style={{ borderColor: timer >= 60 && vitals.hr < 100 ? '#e11d48' : '#1e293b' }}>
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Monitor ECOE v6.1</span>
+                                <span className="text-amber-500 font-bold monitor-font text-xl">{formatTime(timer)}</span>
                             </div>
                             <div className="grid grid-cols-2 gap-8">
                                 <div>
                                     <span className="text-[10px] font-bold text-emerald-500 uppercase">FC (BPM)</span>
-                                    <div className="text-7xl font-black monitor-font text-emerald-400">{vitals.hr || '--'}</div>
-                                    <WaveMonitor color="#10b981" />
+                                    <div className={`text-6xl font-black monitor-font ${timer >= 60 && vitals.hr < 100 ? 'text-rose-500 pulse-red' : 'text-emerald-400'}`}>{vitals.hr || '--'}</div>
+                                    <WaveMonitor color={vitals.hr > 0 ? "#10b981" : "#334155"} />
                                 </div>
                                 <div className="text-right">
                                     <span className="text-[10px] font-bold text-sky-500 uppercase">SpO2 (%)</span>
-                                    <div className="text-7xl font-black monitor-font text-sky-400">{vitals.spo2 || '--'}</div>
-                                    <WaveMonitor color="#38bdf8" />
+                                    <div className="text-6xl font-black monitor-font text-sky-400">{vitals.spo2 || '--'}</div>
+                                    <WaveMonitor color={vitals.spo2 > 0 ? "#38bdf8" : "#334155"} />
                                 </div>
                             </div>
                         </div>
@@ -437,9 +525,9 @@
                         <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-slate-800 shadow-xl">
                             <div className="flex justify-between items-center mb-6">
                                 <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Soporte y Ajustes</span>
-                                <div className="flex gap-2">
-                                    {['neopuff', 'ambu', 'freeflow'].map(m => (
-                                        <button key={m} disabled={!selectedEquip.includes(m === 'freeflow' ? 'neopuff' : m)} onClick={() => setMode(m)} className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase transition-all ${mode === m ? 'bg-blue-600 shadow-md' : 'bg-slate-800 text-slate-500 opacity-50'}`}>{m}</button>
+                                <div className="flex gap-1 bg-slate-950 p-1 rounded-xl">
+                                    {['neopuff', 'ambu', 'freeflow', 'apagado'].map(m => (
+                                        <button key={m} disabled={m !== 'apagado' && !selectedEquip.includes(m === 'freeflow' ? 'neopuff' : m)} onClick={() => { setMode(m); registerAction('mode', m); }} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${mode === m ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 disabled:opacity-20'}`}>{m}</button>
                                     ))}
                                 </div>
                             </div>
@@ -450,27 +538,35 @@
                             </div>
                         </div>
 
+                        {/* Botones de Pasos Dinámicos (Solo aparecen si se eligieron en el carro) */}
                         <div className="grid grid-cols-2 gap-2">
-                            <div className="col-span-2 grid grid-cols-4 gap-1 mb-2 bg-slate-950 p-2 rounded-2xl border border-slate-800">
-                                <button disabled={!selectedEquip.includes('bolsa_poli')} onClick={() => registerAction('thermal', 'bolsa')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Bolsa Poli</button>
-                                <button disabled={!selectedEquip.includes('gorro')} onClick={() => registerAction('thermal', 'gorro')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Gorro</button>
-                                <button onClick={() => registerAction('thermal', 'secar')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Secar</button>
-                                <button onClick={() => registerAction('thermal', 'posicionar')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Olfateo</button>
+                            <div className="col-span-2 bg-slate-950 p-3 rounded-3xl border border-slate-800">
+                                <h4 className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-2 border-b border-slate-800 pb-1">Pasos Iniciales / Temperatura</h4>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    <button onClick={() => registerAction('thermal', 'secar')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Secar</button>
+                                    <button onClick={() => registerAction('thermal', 'estimular')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Estimular</button>
+                                    <button onClick={() => registerAction('thermal', 'posicionar')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Olfateo</button>
+                                    <button onClick={() => registerAction('thermal', 'aspirar')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Aspirar</button>
+                                    
+                                    {selectedEquip.includes('bolsa_poli') && <button onClick={() => registerAction('thermal', 'bolsa_poli')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300">Bolsa Poli</button>}
+                                    {selectedEquip.includes('gorro') && <button onClick={() => registerAction('thermal', 'gorro')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300">Gorro</button>}
+                                    {selectedEquip.includes('colchon') && <button onClick={() => registerAction('thermal', 'colchon')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300">Colchón Térmico</button>}
+                                </div>
                             </div>
-                            <button onClick={() => setProcModal('mrsopa')} className="bg-amber-600/20 border border-amber-600 text-amber-500 font-black p-5 rounded-3xl text-[10px] uppercase shadow-lg tracking-widest">MR. SOPA</button>
-                            <button onClick={() => setProcModal('advanced')} className="bg-slate-900 border border-slate-700 text-white font-black p-5 rounded-3xl text-[10px] uppercase shadow-lg tracking-widest">Vía Aérea</button>
+                            <button onClick={() => setProcModal('mrsopa')} className="bg-amber-600/20 border border-amber-600 text-amber-500 font-black p-5 rounded-3xl text-[10px] uppercase shadow-lg tracking-widest text-center">MR. SOPA</button>
+                            <button onClick={() => setProcModal('advanced')} className="bg-slate-900 border border-slate-700 text-white font-black p-5 rounded-3xl text-[10px] uppercase shadow-lg tracking-widest text-center">Vía Aérea</button>
                         </div>
                     </div>
 
                     {/* PANEL DERECHO: INTERACCIÓN Y TABLAS VISUALES */}
                     <div className="flex-1 flex flex-col gap-6">
                         {/* Tablas Visuales (Torpedos) */}
-                        <div className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-6 flex flex-col md:flex-row gap-4 shadow-xl">
+                        <div className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-6 flex flex-col md:flex-row gap-6 shadow-xl">
                             <div className="flex-1">
-                                <h4 className="text-[9px] font-black text-sky-400 uppercase tracking-widest mb-2 border-b border-slate-800 pb-1">Metas SpO2 (AHA)</h4>
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                <h4 className="text-[9px] font-black text-sky-400 uppercase tracking-widest mb-3 border-b border-slate-800 pb-1">Metas SpO2 (AHA)</h4>
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                     {GUIDELINES.spo2.map((g,i) => (
-                                        <div key={i} className={`flex justify-between text-[10px] font-bold ${Math.floor(timer/60)+1 === g.min ? 'text-amber-400' : 'text-slate-500'}`}>
+                                        <div key={i} className={`flex justify-between text-[11px] font-bold ${Math.floor(timer/60)+1 === g.min ? 'text-amber-400 bg-amber-400/10 px-1 rounded' : 'text-slate-500'}`}>
                                             <span>{g.min} min:</span><span>{g.val}</span>
                                         </div>
                                     ))}
@@ -478,8 +574,8 @@
                             </div>
                             <div className="w-px bg-slate-800 hidden md:block"></div>
                             <div className="flex-1">
-                                <h4 className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2 border-b border-slate-800 pb-1">Ajustes Iniciales VPP</h4>
-                                <div className="text-[10px] font-bold text-slate-500 space-y-1">
+                                <h4 className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-3 border-b border-slate-800 pb-1">Ajustes Iniciales VPP</h4>
+                                <div className="text-[11px] font-bold text-slate-500 space-y-2">
                                     <div className="flex justify-between"><span>PIP Inicial:</span><span className="text-white">{GUIDELINES.settings.pip}</span></div>
                                     <div className="flex justify-between"><span>PEEP:</span><span className="text-white">{GUIDELINES.settings.peep}</span></div>
                                     <div className="flex justify-between"><span>FiO2 ≥ 35s:</span><span className="text-white">{GUIDELINES.settings.fio2_term}</span></div>
@@ -491,13 +587,15 @@
                         {/* Área de Ventilación y Manómetro */}
                         <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-6 relative">
                             <div className="relative">
-                                <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black transition-all shadow-xl ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
-                                {mode !== 'freeflow' ? (
+                                <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black transition-all shadow-xl z-10 whitespace-nowrap ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
+                                {mode === 'apagado' ? (
+                                    <div className="w-40 h-40 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-500 font-black uppercase text-center p-6 italic leading-tight shadow-inner">Soporte Apagado<br/>Evaluando Espontánea</div>
+                                ) : mode !== 'freeflow' ? (
                                     <button onMouseDown={handleVentilation} className={`w-40 h-40 rounded-full border-8 transition-all flex flex-col items-center justify-center ${isVPPActive ? 'bg-blue-600 scale-95 border-white shadow-inner' : 'bg-slate-900 border-blue-600 shadow-2xl shadow-blue-500/30'}`}>
                                         <svg className={`w-14 h-14 ${isVPPActive ? 'text-white' : 'text-blue-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="4"/></svg>
                                     </button>
                                 ) : (
-                                    <div className="w-40 h-40 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-600 font-black uppercase text-center p-8 italic leading-tight shadow-inner">O2 Flujo Libre<br/>(Mascarilla)</div>
+                                    <div className="w-40 h-40 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-600 font-black uppercase text-center p-8 italic leading-tight shadow-inner">O2 Flujo Libre<br/>(Mascarilla a Distancia)</div>
                                 )}
                             </div>
 
@@ -528,11 +626,10 @@
                             </span>
                         </div>
                         
-                        {/* Mensaje de Asistencia (Solo visible en modo Guiado) */}
                         {guidedMode && assistantHint && (
-                            <div className="mb-3 bg-blue-900/30 border border-blue-500/50 p-3 rounded-xl flex items-start gap-3">
-                                <span className="text-xl">💡</span>
-                                <span className="text-xs font-bold text-blue-300 leading-snug">{assistantHint}</span>
+                            <div className="mb-3 bg-blue-900/30 border border-blue-500/50 p-4 rounded-xl flex items-start gap-3 shadow-lg">
+                                <span className="text-2xl mt-0.5">💡</span>
+                                <span className="text-sm font-bold text-blue-300 leading-snug">{assistantHint}</span>
                             </div>
                         )}
 
@@ -555,7 +652,8 @@
                                     {[
                                         {id:'M', n:'Máscara', d:'Ajustar sello facial.'}, {id:'R', n:'Reposición', d:'Posición de olfateo.'},
                                         {id:'S', n:'Succión', d:'Boca y luego nariz.'}, {id:'O', n:'Open (Boca Abierta)', d:'Levantar mandíbula.'},
-                                        {id:'P', n:'Presión', d:'Aumentar PIP gradualmente a 25-30.'}
+                                        {id:'P', n:'Presión', d:'Aumentar PIP gradualmente a 25-30.'},
+                                        {id:'A', n:'Vía Alternativa', d:'Preparar Intubación.'}
                                     ].map(it => (
                                         <button key={it.id} onClick={() => registerAction('sopa', it.id)} className={`flex items-center gap-4 w-full p-4 rounded-3xl border-2 transition-all ${stateRef.current.sopaSteps.includes(it.id) ? 'bg-emerald-50 border-emerald-500 shadow-inner' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 shadow-md'}`}>
                                             <span className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${stateRef.current.sopaSteps.includes(it.id) ? 'bg-emerald-500 text-white shadow-lg' : 'bg-slate-200 text-slate-500'}`}>{it.id}</span>
@@ -577,13 +675,18 @@
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
                                     <div className="space-y-4">
-                                        <p className="text-[10px] font-black text-blue-500 uppercase border-b border-blue-900/50 pb-2 tracking-widest">A: Intubación ET</p>
-                                        <button disabled={!selectedEquip.includes('laringo')} onClick={() => addLog("Visualizo glotis con laringo.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600 disabled:opacity-30">1. Colocar Laringo</button>
-                                        <button onClick={() => { registerAction('sopa', 'A'); addLog("Tubo ET insertado.", "correct"); }} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600">2. Insertar Tubo</button>
+                                        <p className="text-[10px] font-black text-blue-500 uppercase border-b border-blue-900/50 pb-2 tracking-widest">Opción A: Intubación ET</p>
+                                        <button disabled={!selectedEquip.includes('laringo')} onClick={() => addLog("Visualizo glotis con laringoscopio.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600 disabled:opacity-30 shadow-lg">1. Colocar Laringo</button>
+                                        <div className="flex gap-2">
+                                            {['tubo_25', 'tubo_30', 'tubo_35'].map(t => (
+                                                <button key={t} disabled={!selectedEquip.includes(t)} onClick={() => { registerAction('sopa', 'A'); addLog(`Tubo ${t.split('_')[1]} insertado.`, "correct"); }} className="flex-1 p-3 bg-slate-800 rounded-xl text-[9px] font-bold uppercase hover:bg-blue-600 disabled:opacity-30">T.{t.split('_')[1]}</button>
+                                            ))}
+                                        </div>
+                                        <button onClick={() => addLog("Tubo fijado y verificado.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600 shadow-lg">3. Fijar Tubo</button>
                                     </div>
                                     <div className="space-y-4">
-                                        <p className="text-[10px] font-black text-amber-500 uppercase border-b border-amber-900/50 pb-2 tracking-widest">B: Máscara Laríngea</p>
-                                        <button disabled={!selectedEquip.includes('ml')} onClick={() => { registerAction('sopa', 'A'); addLog("M. Laríngea insertada y sellada.", "correct"); }} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-amber-600 disabled:opacity-30">Insertar ML</button>
+                                        <p className="text-[10px] font-black text-amber-500 uppercase border-b border-amber-900/50 pb-2 tracking-widest">Opción B: Máscara Laríngea</p>
+                                        <button disabled={!selectedEquip.includes('ml')} onClick={() => { registerAction('sopa', 'A'); addLog("Máscara Laríngea insertada y sellada.", "correct"); }} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-amber-600 disabled:opacity-30 shadow-lg">Insertar M. Laríngea</button>
                                     </div>
                                 </div>
                             </div>
@@ -593,21 +696,23 @@
             );
 
             if (gameState === 'fail') return (
-                <div className="min-h-screen flex items-center justify-center p-8 text-center bg-slate-950">
-                    <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-rose-600 max-w-lg w-full shadow-2xl">
-                        <h2 className="text-4xl font-black mb-6 uppercase text-rose-500">Muerte Neonatal</h2>
-                        <p className="text-slate-400 mb-10 leading-relaxed text-lg italic tracking-tight">"A pesar de las maniobras, el paciente no respondió. En prematuros menores de 32 semanas, la termorregulación es vital (NO SECAR, usar bolsa poli)."</p>
-                        <button onClick={() => setGameState('menu')} className="w-full bg-blue-600 py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl">Reintentar</button>
+                <div className="min-h-screen flex items-center justify-center p-8 bg-slate-950">
+                    <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-rose-600 max-w-2xl w-full shadow-2xl">
+                        <h2 className="text-4xl font-black mb-6 uppercase text-rose-500 tracking-tighter text-center">Fallecimiento Neonatal</h2>
+                        <p className="text-slate-400 mb-6 leading-relaxed text-lg text-center">El paciente no logró estabilizarse en el tiempo crítico.</p>
+                        <Debriefing />
+                        <button onClick={() => setGameState('menu')} className="w-full mt-8 bg-slate-800 hover:bg-slate-700 text-white py-6 rounded-3xl font-black uppercase tracking-widest transition-all">Volver al Menú</button>
                     </div>
                 </div>
             );
 
             if (gameState === 'success') return (
-                <div className="min-h-screen flex items-center justify-center p-8 text-center bg-slate-950">
-                    <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-emerald-600 max-w-lg w-full shadow-2xl">
-                        <h2 className="text-4xl font-black mb-6 uppercase text-emerald-500 tracking-tighter">Estabilizado</h2>
-                        <p className="text-slate-400 mb-10 leading-relaxed text-lg tracking-tight">"RN con estabilidad hemodinámica. Se coordina el traslado inmediato a la UCIN."</p>
-                        <button onClick={() => setGameState('menu')} className="w-full bg-blue-600 py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-900/20">Finalizar Guardia</button>
+                <div className="min-h-screen flex items-center justify-center p-8 bg-slate-950">
+                    <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-emerald-600 max-w-2xl w-full shadow-2xl">
+                        <h2 className="text-4xl font-black mb-6 uppercase text-emerald-500 tracking-tighter text-center">Reanimación Exitosa</h2>
+                        <p className="text-slate-400 mb-6 leading-relaxed text-lg text-center">Paciente estabilizado con respiración espontánea.</p>
+                        <Debriefing />
+                        <button onClick={() => setGameState('menu')} className="w-full mt-8 bg-emerald-600 hover:bg-emerald-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 transition-all">Finalizar Guardia</button>
                     </div>
                 </div>
             );

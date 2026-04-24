@@ -15,7 +15,8 @@
         .pulse-red { animation: pulse 1s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; border-color: #ef4444; } 50% { opacity: 0.5; border-color: #7f1d1d; } }
         
-        .wave-container { height: 30px; width: 100%; overflow: hidden; position: relative; opacity: 0.4; }
+        /* Animación de Ondas Monitor */
+        .wave-container { height: 40px; width: 100%; overflow: hidden; position: relative; opacity: 0.5; margin-top: 5px; }
         .wave-svg { position: absolute; width: 200%; height: 100%; animation: move-wave 4s linear infinite; }
         @keyframes move-wave { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
@@ -30,137 +31,229 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- CARRO DE REANIMACIÓN CON CATEGORÍAS Y DISTRACTORES ---
+        // --- DATOS Y EQUIPOS ---
         const EQUIPMENT_CART = [
-            { category: "Cajón 1: Termorregulación", items: [
+            { category: "1. Termorregulación", items: [
                 { id: 'cuna', name: 'Cuna Radiante', correct: true },
                 { id: 'bolsa_poli', name: 'Bolsa Polietileno', correct: true },
                 { id: 'gorro', name: 'Gorro lana', correct: true },
-                { id: 'term_rectal', name: 'Termómetro Rectal', correct: false } // Distractor
+                { id: 'term_rectal', name: 'Termómetro Rectal (Falso)', correct: false }
             ]},
-            { category: "Cajón 2: Ventilación", items: [
+            { category: "2. Ventilación y Oxígeno", items: [
                 { id: 'neopuff', name: 'NeoPuff', correct: true },
-                { id: 'ambu', name: 'Bolsa Autoinflable', correct: true },
+                { id: 'ambu', name: 'Ambu con reservorio', correct: true },
                 { id: 'mascara_0', name: 'Máscara #0', correct: true },
                 { id: 'mascara_1', name: 'Máscara #1', correct: true },
-                { id: 'mascara_adulto', name: 'Máscara Adulto', correct: false } // Distractor
+                { id: 'blender', name: 'Mezclador FiO2', correct: true },
+                { id: 'vent_mec', name: 'Ventilador de Transporte', correct: true }
             ]},
-            { category: "Cajón 3: Vía Aérea Avanzada", items: [
+            { category: "3. Vía Aérea Avanzada", items: [
                 { id: 'laringo', name: 'Laringoscopio', correct: true },
+                { id: 'ml', name: 'Máscara Laríngea', correct: true },
                 { id: 'tubo_25', name: 'Tubo ET 2.5', correct: true },
-                { id: 'tubo_30', name: 'Tubo ET 3.0', correct: true },
-                { id: 'tubo_35', name: 'Tubo ET 3.5', correct: true },
-                { id: 'tubo_45', name: 'Tubo ET 4.5 (Adulto)', correct: false }, // Distractor
-                { id: 'ml', name: 'Máscara Laríngea #1', correct: true }
+                { id: 'tubo_30', name: 'Tubo ET 3.0', correct: true }, 
+                { id: 'tubo_35', name: 'Tubo ET 3.5', correct: true }, 
+                { id: 'tubo_40', name: 'Tubo ET 4.0', correct: true }
             ]},
-            { category: "Cajón 4: Drogas / Acceso", items: [
+            { category: "4. Drogas y Accesos", items: [
                 { id: 'surfactante', name: 'Surfactante', correct: true },
-                { id: 'adrenalina', name: 'Adrenalina', correct: true },
-                { id: 'cateter_umb', name: 'Kit Vía Umbilical', correct: true },
-                { id: 'glucosa_5', name: 'Glucosa 5%', correct: false } // Distractor (no 1era linea)
+                { id: 'adrenalina', name: 'Adrenalina 1:10k', correct: true },
+                { id: 'sf', name: 'Suero Fisiológico', correct: true },
+                { id: 'umbilical', name: 'Catéter Umbilical', correct: true }
             ]},
-            { category: "Cajón 5: Monitorización", items: [
+            { category: "5. Monitorización", items: [
                 { id: 'steto', name: 'Estetoscopio', correct: true },
                 { id: 'spo2', name: 'Saturómetro', correct: true }
             ]}
         ];
 
         const CASES = [
-            { 
-                id: 1, title: "Prematuro 27s - SDR Severo", 
-                vignette: "27 semanas. Sin corticoides antenatales. Líquido claro. Expulsivo inminente.",
-                eg: 27, liq: "Claro", risk: "Membrana Hialina / Hipotermia", hr: 75, spo2: 45, 
-                tone: "Flácido", cry: "Apnea", surfactant: true, targetTube: "tubo_25", cord: "Clampeo precoz por reanimación."
-            },
-            { 
-                id: 2, title: "SAM - Post término", 
-                vignette: "41 semanas. Meconio espeso 'puré de arvejas'. Neonato nace deprimido.",
-                eg: 41, liq: "Meconial Espeso", risk: "Asfixia / SAM", hr: 55, spo2: 35, 
-                tone: "Pobre", cry: "Jadeo", surfactant: false, targetTube: "tubo_35", cord: "Clampeo inmediato."
-            }
+            { id: 1, title: "Prematuro 27s - SDR Severo", vignette: "27 semanas. Sin corticoides antenatales. Líquido claro. Expulsivo inminente.", eg: 27, liq: "Claro", hr: 70, spo2: 45, tone: "Flácido", cry: "Apnea" },
+            { id: 2, title: "SAM Severo - Post término", vignette: "41 semanas. Monitor fetal con bradicardia mantenida. Líquido meconial espeso.", eg: 41, liq: "Meconial", hr: 55, spo2: 35, tone: "Pobre", cry: "Jadeo" }
         ];
 
         function App() {
             const [gameState, setGameState] = useState('menu');
             const [currentCase, setCurrentCase] = useState(null);
+            
+            // UI States
             const [timer, setTimer] = useState(0);
             const [vitals, setVitals] = useState({ hr: 0, spo2: 0 });
             const [logs, setLogs] = useState([]);
+            const [rhythmMsg, setRhythmMsg] = useState("");
+            const [procModal, setProcModal] = useState(null);
             
-            // Estados de Proceso
+            // Flow States
             const [selectedEquip, setSelectedEquip] = useState([]);
             const [askedBriefing, setAskedBriefing] = useState([]);
             const [askedBirth, setAskedBirth] = useState([]);
-            
-            // Reanimación Activa
+
+            // Interfaz de Reanimación
+            const [mode, setMode] = useState('neopuff');
             const [pip, setPip] = useState(20);
             const [fio2, setFio2] = useState(21);
             const [flow, setFlow] = useState(10);
             const [isVPPActive, setIsVPPActive] = useState(false);
-            const [sopaSteps, setSopaSteps] = useState([]);
-            const [rhythmMsg, setRhythmMsg] = useState("");
-            const [procModal, setProcModal] = useState(null);
-            const [selectedTube, setSelectedTube] = useState(null);
-            const [thermalActions, setThermalActions] = useState([]);
+            const [ventCount, setVentCount] = useState(0);
+            const [onVentilator, setOnVentilator] = useState(false); // NUEVO ESTADO
 
+            // --- REFS PARA MOTOR FÍSICO Y TIEMPO REAL ---
             const timerRef = useRef(null);
-            const lastVentRef = useRef(0);
+            const stateRef = useRef({
+                hr: 0, spo2: 0, mode: 'neopuff', pip: 20, flow: 10, 
+                sopaSteps: [], thermalActions: [], drugs: [], equips: [], lastVentTime: 0,
+                onVentilator: false
+            });
 
-            // --- LÓGICA DE TIEMPO Y FISIOLOGÍA ---
+            // Sincronizar UI con Refs
+            useEffect(() => {
+                stateRef.current.mode = mode;
+                stateRef.current.pip = pip;
+                stateRef.current.flow = flow;
+                stateRef.current.equips = selectedEquip;
+                stateRef.current.onVentilator = onVentilator;
+            }, [mode, pip, flow, selectedEquip, onVentilator]);
+
+            // --- MOTOR DE SIMULACIÓN PRINCIPAL ---
             useEffect(() => {
                 if (gameState === 'resus') {
+                    // Inicializar vitales en el ref
+                    stateRef.current.hr = currentCase.hr;
+                    stateRef.current.spo2 = currentCase.spo2;
+                    setVitals({ hr: currentCase.hr, spo2: currentCase.spo2 });
+
                     timerRef.current = setInterval(() => {
-                        setTimer(prev => {
-                            const nt = prev + 1;
-                            if (nt === 30) addLog("[!] EVALUACIÓN 30s.", "alert");
-                            if (nt === 60) addLog("[!] EVALUACIÓN 60s.", "alert");
+                        setTimer(prevT => {
+                            const nt = prevT + 1;
+                            if (nt === 30) addLog("[!] ALERTA 30s: Evaluar FC y respiración.", "alert");
+                            if (nt === 60) addLog("[!] MINUTO DE ORO: Si FC < 100, iniciar VPP efectiva.", "alert");
                             return nt;
                         });
 
-                        setVitals(v => {
-                            // Lógica de respuesta: necesita sello (M+R) o Vía Alternativa (A) + PIP adecuada
-                            const isEffectiveVPP = isVPPActive && (sopaSteps.length >= 2 || sopaSteps.includes('A')) && flow >= 10;
-                            const isPIPEnough = pip >= 25 || sopaSteps.includes('P');
-                            
-                            // Factor de supervivencia para 27s: requiere bolsa + gorro + VPP efectiva
-                            let survivalFactor = (isEffectiveVPP && isPIPEnough) ? 1.5 : -0.8;
-                            
-                            // Penalización extrema si seca al prematuro <32s
-                            if (currentCase.eg < 32 && thermalActions.includes('secar')) survivalFactor -= 1.0;
-                            if (currentCase.eg < 32 && !thermalActions.includes('bolsa')) survivalFactor -= 0.5;
+                        const now = Date.now();
+                        const { hr, spo2, mode, pip, flow, sopaSteps, thermalActions, drugs, equips, lastVentTime, onVentilator } = stateRef.current;
+                        
+                        // Fisiopatología: ¿Está recibiendo ventilación constante? (Por clic o por ventilador mecánico)
+                        const isActivelyVenting = ((now - lastVentTime) < 2500 && mode !== 'freeflow') || onVentilator;
 
-                            const newHr = Math.max(0, Math.min(160, v.hr + survivalFactor));
-                            const newSpo2 = Math.max(0, Math.min(98, v.spo2 + (survivalFactor > 0 ? 0.7 : -0.3)));
+                        let hrChange = -1.0; 
+                        let spo2Change = -0.5;
 
-                            if (newHr === 0) setGameState('fail');
-                            if (newHr > 110 && timer > 120 && newSpo2 > 85) setGameState('success');
+                        // Penalizaciones térmicas
+                        if (currentCase.eg < 32) {
+                            if (thermalActions.includes('secar')) hrChange -= 1.5; 
+                            if (!thermalActions.includes('bolsa') || !thermalActions.includes('gorro')) hrChange -= 0.8;
+                        }
 
-                            return { hr: Math.floor(newHr), spo2: Math.floor(newSpo2) };
-                        });
+                        // Efectividad de VPP
+                        if (isActivelyVenting) {
+                            if (flow < 8) {
+                                hrChange -= 1.0; 
+                            } else {
+                                let effective = false;
+                                if (currentCase.eg < 32) {
+                                    // Acepta presión alta, MR SOPA O estar intubado ('A')
+                                    if (pip >= 25 || sopaSteps.includes('P') || sopaSteps.includes('A')) effective = true;
+                                } else {
+                                    effective = true;
+                                }
+
+                                if (effective) {
+                                    hrChange = 2.0; 
+                                    spo2Change = 1.0;
+                                    if (currentCase.eg < 32 && drugs.includes('surfactante')) {
+                                        hrChange += 1.5; // El surfactante acelera la recuperación brutalmente
+                                        spo2Change += 1.5;
+                                    }
+                                    if (drugs.includes('adrenalina') && equips.includes('umbilical')) hrChange += 3.0;
+                                } else {
+                                    hrChange = 0; // Ventila pero no entra aire (FC se estanca)
+                                    spo2Change = 0;
+                                }
+                            }
+                        } else if (mode === 'freeflow') {
+                            hrChange = -0.3; // Oxígeno libre enlentece la caída, pero no salva de apnea
+                            spo2Change = 0.2;
+                        }
+
+                        // Si está estable y en ventilador, la FC no sube al infinito, se queda en 140
+                        if (onVentilator && hr > 135) hrChange = 0;
+
+                        // Calcular nuevos vitales
+                        const newHr = Math.max(0, Math.min(160, hr + hrChange));
+                        const newSpo2 = Math.max(0, Math.min(98, spo2 + spo2Change));
+
+                        stateRef.current.hr = newHr;
+                        stateRef.current.spo2 = newSpo2;
+                        
+                        setVitals({ hr: Math.floor(newHr), spo2: Math.floor(newSpo2) });
+
+                        // Condiciones de Fin
+                        if (newHr === 0) setGameState('fail');
+                        
+                        // Victoria: Estable + más del minuto de oro
+                        if (newHr > 110 && newSpo2 >= 88 && stateRef.current.timer > 60) {
+                            // En el caso 27 semanas, DEBES haber dado surfactante o estar en ventilador para ganar
+                            if (currentCase.eg < 32 && !drugs.includes('surfactante') && !onVentilator) {
+                                // Aún no gana, necesita asegurar vía/surfactante
+                            } else {
+                                setGameState('success');
+                            }
+                        }
+
                     }, 1000);
-                } else clearInterval(timerRef.current);
+                } else {
+                    clearInterval(timerRef.current);
+                }
                 return () => clearInterval(timerRef.current);
-            }, [gameState, isVPPActive, sopaSteps, flow, thermalActions, pip]);
+            }, [gameState, currentCase]);
 
+            // --- FUNCIONES AUXILIARES ---
             const addLog = (m, status = 'info') => {
-                const icons = { info: '🔹', correct: '✅', error: '❌', alert: '🔔', late: '⏰' };
-                setLogs(prev => [{ t: formatTime(timer), m, icon: icons[status], status }, ...prev]);
+                const icons = { info: '🔹', correct: '✅', error: '❌', alert: '🔔', late: '⏰', warn: '⚠️' };
+                setTimer(currentT => {
+                    setLogs(prev => [{ t: formatTime(currentT), m, icon: icons[status], status }, ...prev]);
+                    return currentT;
+                });
             };
 
             const formatTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
 
             const handleVentilation = () => {
+                if (mode === 'freeflow' || onVentilator) return;
                 const now = Date.now();
-                const diff = (now - lastVentRef.current) / 1000;
-                lastVentRef.current = now;
+                const diff = (now - stateRef.current.lastVentTime) / 1000;
+                
+                stateRef.current.lastVentTime = now;
+                setVentCount(c => c + 1);
                 setIsVPPActive(true);
 
-                if (lastVentRef.current !== 0 && diff > 0.1) {
-                    if (diff < 0.7) { setRhythmMsg("¡RÁPIDO!"); addLog("Ventilación demasiado rápida.", "error"); }
-                    else if (diff > 2.8) { setRhythmMsg("LENTO..."); addLog("Ventilación demasiado lenta.", "late"); }
+                if (stateRef.current.lastVentTime !== 0 && diff > 0.1) {
+                    if (diff < 0.8) { setRhythmMsg("¡RÁPIDO!"); addLog("Ritmo de VPP muy rápido.", "error"); }
+                    else if (diff > 2.5) { setRhythmMsg("LENTO..."); addLog("Ritmo de VPP insuficiente.", "late"); }
                     else setRhythmMsg("RITMO CORRECTO");
                 }
-                setTimeout(() => setIsVPPActive(false), 250);
+                setTimeout(() => { setIsVPPActive(false); setRhythmMsg(""); }, 300);
+            };
+
+            const registerAction = (type, value) => {
+                if (type === 'thermal') {
+                    if (!stateRef.current.thermalActions.includes(value)) {
+                        stateRef.current.thermalActions.push(value);
+                        if (value === 'secar' && currentCase.eg < 32) addLog("ERROR CRÍTICO: Prematuros menores de 32 semanas no se secan (Pérdida de calor).", "error");
+                        else addLog(`Acción: ${value} realizado.`, 'correct');
+                    }
+                } else if (type === 'sopa') {
+                    if (!stateRef.current.sopaSteps.includes(value)) {
+                        stateRef.current.sopaSteps.push(value);
+                        addLog(`MR SOPA [${value}] ejecutado.`, 'correct');
+                    }
+                } else if (type === 'drug') {
+                    if (!stateRef.current.drugs.includes(value)) {
+                        stateRef.current.drugs.push(value);
+                        addLog(`Fármaco administrado: ${value}.`, 'correct');
+                    }
+                }
             };
 
             const startGame = () => {
@@ -172,76 +265,59 @@
                 setSelectedEquip([]);
                 setAskedBriefing([]);
                 setAskedBirth([]);
-                setThermalActions([]);
-                setSopaSteps([]);
-                setVitals({ hr: c.hr, spo2: c.spo2 });
+                setVentCount(0);
+                setOnVentilator(false);
+                stateRef.current = { hr: c.hr, spo2: c.spo2, mode: 'neopuff', pip: 20, flow: 10, sopaSteps: [], thermalActions: [], drugs: [], equips: [], lastVentTime: 0, onVentilator: false };
             };
 
-            // --- COMPONENTES ---
-
-            const Monitor = () => (
-                <div className={`bg-black border-4 rounded-[2.5rem] p-6 mb-6 shadow-2xl relative transition-all ${timer >= 60 && vitals.hr < 100 ? 'border-rose-600 pulse-red' : 'border-slate-800'}`}>
-                    <div className="flex justify-between items-center mb-6">
-                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest italic">Real-Time Monitor v5.0</span>
-                        <span className="text-amber-500 font-bold monitor-font text-lg tracking-widest">{formatTime(timer)}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-8">
-                        <div>
-                            <span className="text-[10px] font-bold text-emerald-500 uppercase">FC (BPM)</span>
-                            <div className="text-7xl font-black monitor-font text-emerald-400">{vitals.hr || '--'}</div>
-                            <div className="wave-container"><svg className="wave-svg" viewBox="0 0 200 40"><path d="M0,20 L10,20 L15,5 L20,35 L25,20 L50,20 L60,20 L65,5 L70,35 L75,20 L100,20" stroke="#10b981" strokeWidth="2" fill="none" /></svg></div>
-                        </div>
-                        <div className="text-right">
-                            <span className="text-[10px] font-bold text-sky-500 uppercase">SpO2 (%)</span>
-                            <div className="text-7xl font-black monitor-font text-sky-400">{vitals.spo2 || '--'}</div>
-                            <div className="wave-container"><svg className="wave-svg" viewBox="0 0 200 40"><path d="M0,20 Q20,5 40,20 T80,20 T120,20 T160,20" stroke="#38bdf8" strokeWidth="2" fill="none" /></svg></div>
-                        </div>
-                    </div>
+            // --- COMPONENTES VISUALES ---
+            const WaveMonitor = ({ color }) => (
+                <div className="wave-container">
+                    <svg className="wave-svg" viewBox="0 0 200 40"><path className="wave" d="M0,20 L10,20 L15,5 L20,35 L25,20 L50,20 L60,20 L65,5 L70,35 L75,20 L100,20" stroke={color} /></svg>
                 </div>
             );
 
-            // --- VISTAS ---
-
+            // --- VISTAS DE LA APLICACIÓN ---
             if (gameState === 'menu') return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
                     <div className="bg-blue-600 p-8 rounded-[3rem] shadow-2xl mb-8 scale-110">
-                        <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                        <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                     </div>
-                    <h1 className="text-4xl font-black mb-4 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                    <p className="text-slate-500 mb-12 italic text-sm">Simulador de Alta Fidelidad - Entrenamiento ECOE</p>
-                    <button onClick={startGame} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95">Empezar Turno</button>
+                    <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
+                    <p className="text-slate-500 mb-12 italic max-w-xs text-sm">Simulador ECOE - Alta Fidelidad 2026</p>
+                    <button onClick={startGame} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
                 </div>
             );
 
             if (gameState === 'vignette') return (
                 <div className="min-h-screen flex items-center justify-center p-6 bg-slate-950">
                     <div className="bg-slate-900 p-12 rounded-[4rem] border border-slate-800 max-w-xl w-full shadow-2xl">
-                        <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-6 block underline">Contexto Clínico</span>
-                        <h2 className="text-3xl font-bold mb-6 leading-tight text-white">{currentCase.title}</h2>
+                        <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-6 block underline underline-offset-4">Recepción Urgente</span>
+                        <h2 className="text-3xl font-black mb-6 leading-tight text-white">{currentCase.title}</h2>
                         <p className="text-slate-300 text-lg leading-relaxed mb-12 italic border-l-4 border-blue-600 pl-6">"{currentCase.vignette}"</p>
-                        <button onClick={() => setGameState('briefing')} className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-lg">Realizar Briefing</button>
+                        <button onClick={() => setGameState('briefing')} className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-lg">Asistir al Parto</button>
                     </div>
                 </div>
             );
 
             if (gameState === 'briefing') return (
                 <div className="min-h-screen p-6 max-w-xl mx-auto flex flex-col justify-center">
-                    <h2 className="text-2xl font-black text-center mb-10 uppercase tracking-widest text-blue-400">1. Interrogatorio a Obstetricia</h2>
+                    <h2 className="text-2xl font-black text-center mb-10 uppercase tracking-widest text-blue-400">1. Briefing Obstétrico</h2>
                     <div className="grid gap-3">
                         {[
                             { id:'eg', q:'¿Cuál es la edad gestacional?', a:currentCase.eg + ' semanas' },
                             { id:'liq', q:'¿Cómo está el líquido amniótico?', a:currentCase.liq },
-                            { id:'riesgo', q:'¿Algún factor de riesgo adicional?', a:currentCase.risk },
-                            { id:'cord', q:'¿Cuál es el plan para el cordón?', a:currentCase.cord }
+                            { id:'riesgo', q:'¿Algún factor de riesgo adicional?', a:'Alta probabilidad de depresión.' },
+                            { id:'cord', q:'¿Cuál es el plan para el cordón?', a:'Clampeo según vigor al nacer.' }
                         ].map(it => (
                             <button key={it.id} onClick={() => !askedBriefing.includes(it.id) && setAskedBriefing(p => [...p, it.id])} className={`p-6 rounded-[2rem] border-2 text-left relative overflow-hidden transition-all ${askedBriefing.includes(it.id) ? 'border-blue-500 bg-blue-500/10 shadow-inner' : 'border-slate-800 bg-slate-900 shadow-lg'}`}>
                                 <p className="text-[10px] font-black text-blue-400 uppercase mb-1">{it.q}</p>
                                 <p className={`font-bold transition-all text-white ${askedBriefing.includes(it.id) ? 'opacity-100' : 'opacity-0'}`}>{it.a}</p>
-                                {!askedBriefing.includes(it.id) && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm text-[10px] font-black text-slate-500">OBTENER DATO</div>}
+                                {!askedBriefing.includes(it.id) && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm text-[10px] font-black text-slate-500 uppercase tracking-widest">Interrogar</div>}
                             </button>
                         ))}
                     </div>
-                    <button disabled={askedBriefing.length < 4} onClick={() => setGameState('prep')} className="w-full mt-10 bg-white text-black font-black py-5 rounded-3xl disabled:opacity-20 uppercase shadow-xl tracking-widest">Revisar Carro de Paro</button>
+                    <button disabled={askedBriefing.length < 4} onClick={() => setGameState('prep')} className="w-full mt-10 bg-white text-black font-black py-5 rounded-3xl disabled:opacity-20 uppercase tracking-widest shadow-xl">Revisar Carro de Paro</button>
                 </div>
             );
 
@@ -281,22 +357,41 @@
                             <button key={it.id} onClick={() => !askedBirth.includes(it.id) && setAskedBirth(p => [...p, it.id])} className={`p-10 rounded-[3rem] border-2 transition-all relative overflow-hidden ${askedBirth.includes(it.id) ? 'border-amber-600 bg-amber-600/10 text-white shadow-xl scale-105' : 'border-slate-800 bg-slate-900 shadow-lg'}`}>
                                 <p className="text-[10px] font-black text-amber-500 uppercase mb-2">{it.q}</p>
                                 <p className={`text-3xl font-black transition-all ${askedBirth.includes(it.id) ? 'opacity-100' : 'opacity-0'}`}>{it.a}</p>
-                                {!askedBirth.includes(it.id) && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm text-[10px] font-black text-slate-300">EVALUAR RN</div>}
+                                {!askedBirth.includes(it.id) && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm text-[10px] font-black text-slate-300 uppercase tracking-widest">Evaluar</div>}
                             </button>
                         ))}
                     </div>
-                    <button disabled={askedBirth.length < 3} onClick={() => setGameState('resus')} className="mt-14 bg-rose-600 py-5 px-20 rounded-3xl font-black uppercase tracking-widest animate-pulse shadow-2xl active:scale-95 transition-all">Iniciar Maniobras</button>
+                    <button disabled={askedBirth.length < 3} onClick={() => { setGameState('resus'); }} className="mt-14 bg-rose-600 py-5 px-20 rounded-3xl font-black uppercase tracking-widest animate-pulse shadow-2xl active:scale-95 transition-all">Iniciar Maniobras</button>
                 </div>
             );
 
             if (gameState === 'resus') return (
                 <div className="min-h-screen p-4 pb-64">
-                    <Monitor />
+                    {/* Monitor Visual */}
+                    <div className={`bg-black border-4 rounded-[2.5rem] p-6 mb-6 shadow-2xl relative transition-all ${timer >= 60 && vitals.hr < 100 ? 'border-rose-600 pulse-red' : 'border-slate-800'}`}>
+                        <div className="flex justify-between items-center mb-6">
+                            <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Monitor ECOE v5.0</span>
+                            <span className="text-amber-500 font-bold monitor-font text-lg">{formatTime(timer)}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-8">
+                            <div>
+                                <span className="text-[10px] font-bold text-emerald-500 uppercase">FC (BPM)</span>
+                                <div className="text-7xl font-black monitor-font text-emerald-400">{vitals.hr || '--'}</div>
+                                <WaveMonitor color="#10b981" />
+                            </div>
+                            <div className="text-right">
+                                <span className="text-[10px] font-bold text-sky-500 uppercase">SpO2 (%)</span>
+                                <div className="text-7xl font-black monitor-font text-sky-400">{vitals.spo2 || '--'}</div>
+                                <WaveMonitor color="#38bdf8" />
+                            </div>
+                        </div>
+                    </div>
 
+                    {/* Controles y Acciones */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
                         <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-slate-800 space-y-6 shadow-xl">
                             <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Modo</span>
+                                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Modo Soporte</span>
                                 <div className="flex gap-2">
                                     {['neopuff', 'ambu', 'freeflow'].map(m => (
                                         <button key={m} disabled={!selectedEquip.includes(m === 'freeflow' ? 'neopuff' : m)} onClick={() => setMode(m)} className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase transition-all ${mode === m ? 'bg-blue-600 shadow-md shadow-blue-500/30' : 'bg-slate-800 text-slate-500 opacity-50'}`}>{m}</button>
@@ -306,33 +401,33 @@
                             <div className="space-y-6">
                                 <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tighter"><span>PIP (Presión Peak)</span><span className="text-blue-400 font-black">{pip}</span></div><input type="range" min="15" max="40" value={pip} onChange={(e)=>setPip(parseInt(e.target.value))}/></div>
                                 <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tighter"><span>FiO2 (%)</span><span className="text-sky-400 font-black">{fio2}%</span></div><input type="range" min="21" max="100" value={fio2} onChange={(e)=>setFio2(parseInt(e.target.value))}/></div>
-                                <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tighter"><span>Flujo (L/min)</span><span className={flow < 10 ? 'text-rose-500' : 'text-emerald-500'}>{flow} L</span></div><input type="range" min="0" max="15" value={flow} onChange={(e)=>setFlow(parseInt(e.target.value))}/></div>
+                                <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tighter"><span>Flujo (L/min)</span><span className={flow < 10 && mode === 'neopuff' ? 'text-rose-500 font-black' : 'text-emerald-500 font-black'}>{flow} L</span></div><input type="range" min="0" max="15" value={flow} onChange={(e)=>setFlow(parseInt(e.target.value))}/></div>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
-                            <div className="col-span-2 grid grid-cols-3 gap-1 mb-2 bg-slate-950 p-2 rounded-2xl border border-slate-800">
-                                <button disabled={!selectedEquip.includes('bolsa_poli')} onClick={() => { setThermalActions(p=>[...p, 'bolsa']); addLog("Puesto en Bolsa Polietileno.", "correct"); }} className={`text-[8px] p-2 rounded-xl font-black uppercase border ${thermalActions.includes('bolsa') ? 'bg-emerald-600 border-emerald-400' : 'bg-slate-800 border-slate-700 disabled:opacity-30'}`}>Bolsa</button>
-                                <button disabled={!selectedEquip.includes('gorro')} onClick={() => { setThermalActions(p=>[...p, 'gorro']); addLog("Gorro de lana instalado.", "correct"); }} className={`text-[8px] p-2 rounded-xl font-black uppercase border ${thermalActions.includes('gorro') ? 'bg-emerald-600 border-emerald-400' : 'bg-slate-800 border-slate-700 disabled:opacity-30'}`}>Gorro</button>
-                                <button onClick={() => { setThermalActions(p=>[...p, 'secar']); addLog("Bebé Secado y estimulado.", "correct"); }} className={`text-[8px] p-2 rounded-xl font-black uppercase border ${thermalActions.includes('secar') ? 'bg-emerald-600 border-emerald-400' : 'bg-slate-800 border-slate-700'}`}>Secar</button>
+                            <div className="col-span-2 grid grid-cols-4 gap-1 mb-2 bg-slate-950 p-2 rounded-2xl border border-slate-800">
+                                <button disabled={!selectedEquip.includes('bolsa_poli')} onClick={() => registerAction('thermal', 'bolsa')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Bolsa Poli</button>
+                                <button disabled={!selectedEquip.includes('gorro')} onClick={() => registerAction('thermal', 'gorro')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Gorro</button>
+                                <button onClick={() => registerAction('thermal', 'secar')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Secar</button>
+                                <button onClick={() => registerAction('thermal', 'posicionar')} className="text-[8px] p-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800">Olfateo</button>
                             </div>
-                            <button onClick={() => addLog("Vía aérea posicionada en olfateo.", "correct")} className="bg-slate-800 p-4 rounded-3xl text-[9px] font-black uppercase border border-slate-700 shadow-md">Olfateo</button>
-                            <button onClick={() => addLog("Boca y nariz aspiradas.", "correct")} className="bg-slate-800 p-4 rounded-3xl text-[9px] font-black uppercase border border-slate-700 shadow-md">Aspirar</button>
-                            <button onClick={() => setProcModal('mrsopa')} className="bg-amber-600/20 border border-amber-600 text-amber-500 font-black p-5 rounded-3xl text-[10px] uppercase col-span-1 shadow-lg tracking-widest uppercase">MR. SOPA</button>
-                            <button onClick={() => setProcModal('advanced')} className="bg-slate-900 border border-slate-700 text-white font-black p-5 rounded-3xl text-[10px] uppercase col-span-1 shadow-lg tracking-widest uppercase">Vía Aérea</button>
+                            <button onClick={() => setProcModal('mrsopa')} className="bg-amber-600/20 border border-amber-600 text-amber-500 font-black p-5 rounded-3xl text-[10px] uppercase col-span-1 shadow-lg tracking-widest">MR. SOPA</button>
+                            <button onClick={() => setProcModal('advanced')} className="bg-slate-900 border border-slate-700 text-white font-black p-5 rounded-3xl text-[10px] uppercase col-span-1 shadow-lg tracking-widest">Vía Aérea</button>
                         </div>
                     </div>
 
                     <div className="flex flex-col md:flex-row items-center justify-around gap-10 relative">
                         <div className="relative">
                             <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black transition-all shadow-xl ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
-                            {mode !== 'freeflow' ? (
-                                <button onMouseDown={handleVentilation} onMouseUp={() => setIsVPPActive(false)} className={`w-36 h-36 rounded-full border-8 transition-all flex flex-col items-center justify-center ${isVPPActive ? 'bg-blue-600 scale-95 border-white shadow-inner' : 'bg-slate-900 border-blue-600 shadow-2xl shadow-blue-500/30'}`}>
-                                    <svg className={`w-12 h-12 ${isVPPActive ? 'text-white' : 'text-blue-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="4"/></svg>
-                                    <span className="text-xl font-black text-white mt-1 monitor-font">VPP</span>
+                            {onVentilator ? (
+                                <div className="w-40 h-40 rounded-full border-8 border-emerald-500 bg-emerald-900/30 flex items-center justify-center text-[10px] text-emerald-400 font-black uppercase text-center p-8 leading-tight shadow-inner shadow-emerald-500/20">Ventilador<br/>Mecánico<br/>Conectado</div>
+                            ) : mode !== 'freeflow' ? (
+                                <button onMouseDown={handleVentilation} className={`w-40 h-40 rounded-full border-8 transition-all flex flex-col items-center justify-center ${isVPPActive ? 'bg-blue-600 scale-95 border-white shadow-inner' : 'bg-slate-900 border-blue-600 shadow-2xl shadow-blue-500/30'}`}>
+                                    <svg className={`w-14 h-14 ${isVPPActive ? 'text-white' : 'text-blue-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="4"/></svg>
                                 </button>
                             ) : (
-                                <div className="w-36 h-36 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-600 font-black uppercase text-center p-8 italic leading-tight shadow-inner">O2 Flujo Libre<br/>Administrado</div>
+                                <div className="w-40 h-40 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-600 font-black uppercase text-center p-8 italic leading-tight shadow-inner">O2 Flujo Libre<br/>(Mascarilla)</div>
                             )}
                         </div>
 
@@ -340,7 +435,7 @@
                         <div className="flex flex-col items-center justify-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shadow-inner">
                             <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative shadow-2xl">
                                 <div className="absolute w-1 h-12 bg-blue-500 origin-bottom transition-transform duration-100 shadow-lg" 
-                                     style={{ transform: `rotate(${isVPPActive ? (pip * 6 - 90) : -90}deg)`, bottom: '50%' }}></div>
+                                     style={{ transform: `rotate(${(isVPPActive || onVentilator) ? (pip * 6 - 90) : -90}deg)`, bottom: '50%' }}></div>
                                 <div className="w-2 h-2 bg-white rounded-full z-10"></div>
                                 <div className="absolute top-1 text-[7px] font-bold text-slate-500">40</div>
                                 <div className="absolute right-1 text-[7px] font-bold text-slate-500">20</div>
@@ -350,15 +445,16 @@
                         </div>
 
                         <div className="flex flex-col gap-3 w-full max-w-xs">
-                            <button onClick={() => addLog("Surfactante administrado.", "correct")} disabled={!selectedEquip.includes('surfactante')} className="bg-violet-700 py-5 rounded-3xl font-black text-xs uppercase shadow-xl disabled:opacity-30 tracking-widest uppercase">Surfactante</button>
-                            <button onClick={() => addLog("Adrenalina administrada.", "correct")} disabled={!selectedEquip.includes('adrenalina')} className="bg-rose-700 py-5 rounded-3xl font-black text-xs uppercase shadow-xl disabled:opacity-30 tracking-widest uppercase">Adrenalina 1:10k</button>
+                            <button onClick={() => registerAction('drug', 'surfactante')} disabled={!selectedEquip.includes('surfactante')} className="bg-violet-700 py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl disabled:opacity-30 tracking-widest">Surfactante</button>
+                            <button onClick={() => registerAction('drug', 'adrenalina')} disabled={!selectedEquip.includes('adrenalina')} className="bg-rose-700 py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl disabled:opacity-30 tracking-widest">Adrenalina</button>
                         </div>
                     </div>
 
-                    <div className="fixed bottom-0 left-0 right-0 p-5 bg-slate-950 border-t border-slate-800 h-56 overflow-y-auto z-50">
+                    {/* Asistente Protocolar */}
+                    <div className="fixed bottom-0 left-0 right-0 p-5 bg-slate-950 border-t border-slate-800 h-56 overflow-y-auto z-40">
                         <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                            <span className="underline">Asistente ECOE: Registro Protocolar</span>
-                            <span className="text-amber-500 tracking-widest">AHA RELOJ: {formatTime(timer)}</span>
+                            <span className="underline">Registro Asistente</span>
+                            <span className="text-amber-500">Reloj AHA: {formatTime(timer)}</span>
                         </div>
                         {logs.length === 0 && <div className="text-[11px] text-slate-800 italic mt-4 text-center">Esperando conducta médica...</div>}
                         {logs.map((l, i) => (
@@ -370,7 +466,7 @@
                         ))}
                     </div>
 
-                    {/* MODALES */}
+                    {/* MODALES REACTIVOS */}
                     {procModal === 'mrsopa' && (
                         <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-6 text-slate-900">
                             <div className="bg-white rounded-[3rem] p-10 max-w-xl w-full shadow-2xl">
@@ -381,13 +477,13 @@
                                         {id:'S', n:'Succión', d:'Boca y luego nariz.'}, {id:'O', n:'Open (Boca Abierta)', d:'Levantar mandíbula.'},
                                         {id:'P', n:'Presión', d:'Aumentar PIP gradualmente.'}
                                     ].map(it => (
-                                        <button key={it.id} onClick={() => { setSopaSteps(p => [...new Set([...p, it.id])]); addLog(`MR. SOPA: Paso ${it.id} ejecutado.`, 'correct'); }} className={`flex items-center gap-4 w-full p-4 rounded-3xl border-2 transition-all ${sopaSteps.includes(it.id) ? 'bg-emerald-50 border-emerald-500 shadow-inner' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 shadow-md'}`}>
-                                            <span className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${sopaSteps.includes(it.id) ? 'bg-emerald-500 text-white shadow-lg' : 'bg-slate-200 text-slate-500'}`}>{it.id}</span>
+                                        <button key={it.id} onClick={() => registerAction('sopa', it.id)} className={`flex items-center gap-4 w-full p-4 rounded-3xl border-2 transition-all ${stateRef.current.sopaSteps.includes(it.id) ? 'bg-emerald-50 border-emerald-500 shadow-inner' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 shadow-md'}`}>
+                                            <span className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${stateRef.current.sopaSteps.includes(it.id) ? 'bg-emerald-500 text-white shadow-lg' : 'bg-slate-200 text-slate-500'}`}>{it.id}</span>
                                             <div className="text-left"><p className="text-sm font-bold text-slate-900 leading-none mb-1">{it.n}</p><p className="text-[10px] text-slate-400 leading-tight">{it.d}</p></div>
                                         </button>
                                     ))}
                                 </div>
-                                <button onClick={() => setProcModal(null)} className="w-full mt-10 bg-slate-900 text-white py-5 rounded-3xl font-black uppercase shadow-xl tracking-widest">Cerrar y Re-evaluar VPP</button>
+                                <button onClick={() => setProcModal(null)} className="w-full mt-10 bg-slate-900 text-white py-5 rounded-3xl font-black uppercase tracking-widest shadow-xl">Cerrar y Re-evaluar VPP</button>
                             </div>
                         </div>
                     )}
@@ -396,24 +492,22 @@
                         <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6 text-slate-100">
                             <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 max-w-2xl w-full shadow-2xl">
                                 <div className="flex justify-between items-center mb-10">
-                                    <h3 className="text-2xl font-black uppercase tracking-widest text-blue-400">Vía Aérea y Procedimientos</h3>
+                                    <h3 className="text-2xl font-black uppercase tracking-widest text-blue-400">Vía Aérea Avanzada</h3>
                                     <button onClick={()=>setProcModal(null)} className="text-rose-500 font-bold uppercase text-xs">Cerrar</button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
                                     <div className="space-y-4">
                                         <p className="text-[10px] font-black text-blue-500 uppercase border-b border-blue-900/50 pb-2 tracking-widest">Opción A: Intubación ET</p>
-                                        <button disabled={!selectedEquip.includes('laringo')} onClick={() => addLog("Laringoscopio posicionado. Visualizo glotis.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600 disabled:opacity-30 shadow-lg">1. Colocar Laringo</button>
-                                        <div className="flex gap-2">
-                                            {['tubo_25', 'tubo_30', 'tubo_35'].map(t => (
-                                                <button key={t} disabled={!selectedEquip.includes(t)} onClick={() => { setSelectedTube(t); addLog(`Tubo ${t.split('_')[1]} insertado.`, "correct"); setSopaSteps(p=>[...p, 'A']); }} className={`flex-1 p-2 rounded-xl text-[8px] font-black border-2 ${selectedTube === t ? 'border-emerald-500 bg-emerald-500/10' : 'border-slate-700'}`}>T.{t.split('_')[1]}</button>
-                                            ))}
-                                        </div>
-                                        <button onClick={() => addLog("Tubo fijado a distancia sugerida.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600">3. Fijar Tubo</button>
+                                        <button disabled={!selectedEquip.includes('laringo')} onClick={() => addLog("Laringo posicionado.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600 disabled:opacity-30">1. Colocar Laringo</button>
+                                        <button onClick={() => { registerAction('sopa', 'A'); addLog("Tubo ET insertado.", "correct"); }} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600">2. Insertar Tubo</button>
+                                        <button onClick={() => addLog("Tubo fijado.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-blue-600">3. Fijar Tubo</button>
+                                        {/* NUEVO BOTÓN: VENTILADOR */}
+                                        <button disabled={!stateRef.current.sopaSteps.includes('A') || !selectedEquip.includes('vent_mec')} onClick={() => { setOnVentilator(true); addLog("Paciente conectado a ventilador mecánico.", "correct"); setProcModal(null); }} className="w-full p-4 bg-emerald-700 rounded-2xl text-[10px] font-bold uppercase hover:bg-emerald-600 shadow-xl disabled:opacity-30 border-2 border-emerald-400">4. Conectar Ventilador</button>
                                     </div>
                                     <div className="space-y-4">
-                                        <p className="text-[10px] font-black text-amber-500 uppercase border-b border-amber-900/50 pb-2 tracking-widest">Opción B: Otros Procedimientos</p>
-                                        <button disabled={!selectedEquip.includes('ml')} onClick={() => { addLog("Máscara Laríngea insertada.", "correct"); setSopaSteps(p=>[...p, 'A']); }} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-amber-600 disabled:opacity-30 shadow-lg">Insertar M. Laríngea</button>
-                                        <button disabled={!selectedEquip.includes('cateter_umb')} onClick={() => addLog("Catéter umbilical central instalado.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-amber-600 disabled:opacity-30 shadow-lg border-2 border-amber-500/20">Instalar Vía Umbilical</button>
+                                        <p className="text-[10px] font-black text-amber-500 uppercase border-b border-amber-900/50 pb-2 tracking-widest">Opción B: Máscara Laríngea</p>
+                                        <button disabled={!selectedEquip.includes('ml')} onClick={() => addLog("Máscara Laríngea insertada.", "correct")} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-amber-600 disabled:opacity-30">1. Insertar ML</button>
+                                        <button onClick={() => { registerAction('sopa', 'A'); addLog("Cuff inflado.", "correct"); }} className="w-full p-4 bg-slate-800 rounded-2xl text-[10px] font-bold uppercase hover:bg-amber-600">2. Llenar Cuff / Sellar</button>
                                     </div>
                                 </div>
                             </div>
@@ -424,10 +518,10 @@
 
             if (gameState === 'fail') return (
                 <div className="min-h-screen flex items-center justify-center p-8 text-center bg-slate-950">
-                    <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-rose-600 max-w-lg w-full shadow-2xl shadow-rose-900/20">
-                        <h2 className="text-4xl font-black mb-6 uppercase text-rose-500 tracking-tighter">Muerte Neonatal</h2>
-                        <p className="text-slate-400 mb-10 leading-relaxed text-lg italic tracking-tight">"A pesar de las maniobras, el paciente no respondió. Recuerda que para prematuros <32s la termorregulación es vital y nunca se secan."</p>
-                        <button onClick={() => setGameState('menu')} className="w-full bg-blue-600 py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl">Reintentar</button>
+                    <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-rose-600 max-w-lg w-full shadow-2xl">
+                        <h2 className="text-4xl font-black mb-6 uppercase text-rose-500">Muerte Neonatal</h2>
+                        <p className="text-slate-400 mb-10 leading-relaxed text-lg italic">"A pesar de las maniobras, el paciente no respondió. En prematuros <32s, la termorregulación es vital (NO SECAR, usar bolsa poli)."</p>
+                        <button onClick={() => setGameState('menu')} className="w-full bg-blue-600 py-6 rounded-3xl font-black uppercase">Reintentar</button>
                     </div>
                 </div>
             );
@@ -435,9 +529,9 @@
             if (gameState === 'success') return (
                 <div className="min-h-screen flex items-center justify-center p-8 text-center bg-slate-950">
                     <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-emerald-600 max-w-lg w-full shadow-2xl">
-                        <h2 className="text-4xl font-black mb-6 uppercase text-emerald-500 tracking-tighter">Estabilizado</h2>
-                        <p className="text-slate-400 mb-10 leading-relaxed text-lg tracking-tight">"RN con estabilidad hemodinámica. Se coordina el traslado inmediato a la UCIN."</p>
-                        <button onClick={() => setGameState('menu')} className="w-full bg-blue-600 py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-900/20">Finalizar Guardia</button>
+                        <h2 className="text-4xl font-black mb-6 uppercase text-emerald-500">Estabilizado</h2>
+                        <p className="text-slate-400 mb-10 leading-relaxed text-lg">"RN con estabilidad hemodinámica. Se coordina traslado a UCIN."</p>
+                        <button onClick={() => setGameState('menu')} className="w-full bg-blue-600 py-6 rounded-3xl font-black uppercase">Finalizar Turno</button>
                     </div>
                 </div>
             );

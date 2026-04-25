@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NeoResus Master Pro - Alta Fidelidad</title>
+    <title>NeoResus Master Pro - Alta Fidelidad 2</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -33,6 +33,23 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
+
+        // --- ÍCONOS SVG INLINE PARA EL DEBRIEFING ---
+        const CheckCircle2 = ({ className, size }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+        );
+        const XCircle = ({ className, size }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+        );
+        const AlertCircle = ({ className, size }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
 
         const EQUIPMENT_CART = [
             { category: "1. Termorregulación", items: [
@@ -113,7 +130,7 @@
                 hr: 0, spo2: 0, mode: 'neopuff', pip: 20, flow: 10, 
                 sopaSteps: [], thermalActions: [], drugs: [], equips: [], lastVentTime: 0,
                 stableTimer: 0, timer: 0,
-                timestamps: {} // Aquí guardamos el momento exacto de cada acción
+                timestamps: {} 
             });
 
             useEffect(() => {
@@ -168,7 +185,7 @@
                     timerRef.current = setInterval(() => {
                         setTimer(prevT => {
                             const nt = prevT + 1;
-                            stateRef.current.timer = nt; // Sincronizar timer en Ref
+                            stateRef.current.timer = nt; 
                             if (nt === 30 && !guidedMode) addLog("[!] ALERTA 30s: Evaluar FC.", "alert");
                             if (nt === 60 && !guidedMode) addLog("[!] MINUTO DE ORO.", "alert");
                             return nt;
@@ -236,7 +253,6 @@
 
                         if (newHr === 0) setGameState('fail');
                         
-                        // Victoria estricta: Estable > 100 lpm, modo apagado por 4s, tras minuto de oro
                         if (stateRef.current.stableTimer >= 4 && stateRef.current.timer > 60) {
                             setGameState('success');
                         }
@@ -272,7 +288,7 @@
                 stateRef.current.lastVentTime = now;
                 setVentCount(c => c + 1);
                 setIsVPPActive(true);
-                markTimestamp('vpp_start'); // Registrar inicio de VPP
+                markTimestamp('vpp_start'); 
 
                 if (stateRef.current.lastVentTime !== 0 && diff > 0.1) {
                     if (diff < 0.8) { setRhythmMsg("¡RÁPIDO!"); if(!guidedMode) addLog("Ritmo muy rápido.", "error"); }
@@ -327,7 +343,7 @@
                 </div>
             );
 
-            // --- RÚBRICA ECOE (DEBRIEFING STRICTO CON MARGEN DE 15s) ---
+            // --- RÚBRICA ECOE ---
             const Debriefing = () => {
                 const t = stateRef.current.timestamps;
                 const actions = stateRef.current.thermalActions;
@@ -335,15 +351,14 @@
                 
                 const rubric = [];
 
-                // 1. Manejo Térmico Inicial (Target: < 40s)
                 if (isPremature) {
                     if (actions.includes('secar')) {
-                        rubric.push({ text: "Error: Secaste a un prematuro <32s. Causa hipotermia severa por evaporación.", pass: false });
+                        rubric.push({ text: "Error: Secaste a un prematuro menor de 32 semanas. Causa hipotermia severa por evaporación.", pass: false });
                     }
                     if (t['bolsa_poli'] && t['bolsa_poli'] <= 45) {
                         rubric.push({ text: `Excelente: Uso precoz de Bolsa de Polietileno (${formatTime(t['bolsa_poli'])}).`, pass: true });
                     } else if (t['bolsa_poli']) {
-                        rubric.push({ text: `Tardío: Bolsa de Polietileno aplicada tarde (${formatTime(t['bolsa_poli'])}). Ideal <40s.`, pass: 'partial' });
+                        rubric.push({ text: `Tardío: Bolsa de Polietileno aplicada tarde (${formatTime(t['bolsa_poli'])}). Ideal antes de los 40s.`, pass: 'partial' });
                     } else {
                         rubric.push({ text: "Falta Crítica: No usaste Bolsa de Polietileno en prematuro extremo.", pass: false });
                     }
@@ -352,11 +367,9 @@
                     else rubric.push({ text: "Pasos Iniciales: Retraso u omisión en secado/estimulación.", pass: false });
                 }
 
-                // 2. Vía Aérea (Olfateo)
                 if (t['posicionar'] && t['posicionar'] <= 50) rubric.push({ text: `Vía Aérea: Posición de olfateo temprana (${formatTime(t['posicionar'])}).`, pass: true });
                 else rubric.push({ text: "Vía Aérea: Retraso en permeabilizar vía aérea (Olfateo).", pass: 'partial' });
 
-                // 3. Minuto de Oro (VPP Start - Target < 60s, allowed < 75s solo)
                 if (t['vpp_start']) {
                     if (t['vpp_start'] <= 75) rubric.push({ text: `Minuto de Oro: VPP iniciada a tiempo (${formatTime(t['vpp_start'])}).`, pass: true });
                     else rubric.push({ text: `Minuto de Oro: VPP tardía (${formatTime(t['vpp_start'])}). Riesgo de hipoxia prolongada.`, pass: false });
@@ -364,18 +377,15 @@
                     rubric.push({ text: "Falta Crítica: No se administró Presión Positiva (VPP).", pass: false });
                 }
 
-                // 4. MR SOPA (Si aplica)
                 if (t['P'] || t['A']) {
                     rubric.push({ text: "Corrección: Uso adecuado de pasos avanzados de MR. SOPA.", pass: true });
                 }
 
-                // 5. Surfactante (Prematuros)
                 if (isPremature) {
                     if (t['surfactante']) rubric.push({ text: `Manejo SDR: Surfactante administrado correctamente.`, pass: true });
                     else rubric.push({ text: "Manejo SDR: Se omitió administración de Surfactante esencial.", pass: false });
                 }
 
-                // 6. Cierre
                 if (stateRef.current.mode === 'apagado' && gameState === 'success') {
                     rubric.push({ text: "Auditoría Clínica: Se confirmó respiración espontánea apagando el soporte.", pass: true });
                 }
@@ -394,7 +404,7 @@
                             ))}
                         </ul>
                         <div className="mt-6 pt-4 border-t border-slate-800">
-                            <p className="text-[10px] text-slate-500 italic">"Clinical Tip: En un ECOE solitario, se otorga un margen de ~15 segundos extra sobre las metas de la AHA para compensar el manejo de interfaz."</p>
+                            <p className="text-[10px] text-slate-500 italic">"Clinical Tip: En un ECOE solitario, se otorga un margen de ~15 segundos extra sobre las metas de la AHA para compensar el manejo de la interfaz."</p>
                         </div>
                     </div>
                 );
@@ -626,6 +636,7 @@
                             </span>
                         </div>
                         
+                        {/* Mensaje de Asistencia (Solo visible en modo Guiado) */}
                         {guidedMode && assistantHint && (
                             <div className="mb-3 bg-blue-900/30 border border-blue-500/50 p-4 rounded-xl flex items-start gap-3 shadow-lg">
                                 <span className="text-2xl mt-0.5">💡</span>

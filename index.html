@@ -128,10 +128,7 @@
                 stateRef.current.equips = selectedEquip;
             }, [mode, pip, flow, selectedEquip]);
 
-            // FIX #3: Sincronizar isMaskSealed al ref cada vez que cambia
-            useEffect(() => {
-                stateRef.current.isMaskSealed = isMaskSealed;
-            }, [isMaskSealed]);
+            // isMaskSealed se sincroniza directamente al ref en el onClick del botón
 
             // --- LÓGICA DE TIEMPO PRE-ARRIVAL ---
             useEffect(() => {
@@ -519,7 +516,13 @@
                             
                             <div className="relative flex flex-col items-center gap-4">
                                 {mode !== 'freeflow' && mode !== 'apagado' && (
-                                    <button onClick={() => { setIsMaskSealed(!isMaskSealed); addLog(isMaskSealed ? "Mascarilla retirada." : "Mascarilla sellada (PEEP activo).", isMaskSealed ? "info" : "correct"); }} 
+                                    <button onClick={() => {
+                                        const newVal = !isMaskSealed;
+                                        // FIX: actualizar el ref INMEDIATAMENTE, sin esperar el useEffect
+                                        stateRef.current.isMaskSealed = newVal;
+                                        setIsMaskSealed(newVal);
+                                        addLog(newVal ? "Mascarilla sellada (PEEP activo)." : "Mascarilla retirada.", newVal ? "correct" : "info");
+                                    }} 
                                         className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${isMaskSealed ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
                                         {isMaskSealed ? 'Mascarilla Sellada ✓' : 'Sellar Mascarilla'}
                                     </button>
@@ -529,7 +532,7 @@
                                     <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black transition-all shadow-xl z-10 whitespace-nowrap ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
                                     
                                     {mode !== 'freeflow' ? (
-                                        <button onMouseDown={handleVentilation} className={`w-40 h-40 rounded-full border-8 transition-all flex flex-col items-center justify-center ${isVPPActive ? 'bg-blue-600 scale-95 border-white shadow-inner' : 'bg-slate-900 border-blue-600 shadow-2xl shadow-blue-500/30'} ${!isMaskSealed && 'opacity-50 grayscale cursor-not-allowed'}`}>
+                                        <button onMouseDown={handleVentilation} onClick={handleVentilation} className={`w-40 h-40 rounded-full border-8 transition-all flex flex-col items-center justify-center ${isVPPActive ? 'bg-blue-600 scale-95 border-white shadow-inner' : 'bg-slate-900 border-blue-600 shadow-2xl shadow-blue-500/30'} ${!isMaskSealed && 'opacity-50 grayscale cursor-not-allowed'}`}>
                                             <svg className={`w-14 h-14 ${isVPPActive ? 'text-white' : 'text-blue-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v20M2 12h20"/></svg>
                                         </button>
                                     ) : (

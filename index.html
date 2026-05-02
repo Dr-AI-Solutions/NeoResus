@@ -173,10 +173,9 @@
     };
 
     // =============================================================
-    // MANÓMETRO DINÁMICO INDEPENDIENTE
-    // Lógica Corregida: El Ambú calza con la presión real sin lag. NeoPuff salta inmediato.
+    // MANÓMETRO INTELIGENTE (NeoPuff vs Ambú)
     // =============================================================
-    const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef }) => {
+    const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef, isPremature }) => {
         const needleRef = useRef(null);
         const currPressRef = useRef(0);
 
@@ -185,10 +184,8 @@
             const draw = () => {
                 let target = 0;
                 if (mode === 'neopuff') {
-                    // NeoPuff: 5 de base si está sellado, PIP si se aprieta. 
                     if (isMaskSealed) target = isVPPActive ? pipSetting : 5;
                 } else if (mode === 'ambu') {
-                    // Ambú: Sube inmediatamente dependiendo de cuánto tiempo se mantenga apretado
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
                         target = Math.min(60, 10 + (dur / 15)); 
@@ -197,14 +194,19 @@
                     }
                 }
 
-                // Ajuste de "fricción" de la aguja. NeoPuff casi instantáneo, Ambú sigue la mano.
                 const smoothFactor = mode === 'neopuff' ? 0.8 : 0.8;
                 currPressRef.current += (target - currPressRef.current) * smoothFactor;
 
                 if (needleRef.current) {
-                    const visualPress = Math.min(currPressRef.current, 45); // No dejar que gire loco visualmente más de 45
-                    const angle = (visualPress * 4.5) - 90;
-                    needleRef.current.style.transform = `rotate(${angle}deg)`;
+                    if (mode === 'neopuff') {
+                        const visualPress = Math.min(currPressRef.current, 45);
+                        const angle = (visualPress * 4.5) - 90;
+                        needleRef.current.style.transform = `rotate(${angle}deg)`;
+                    } else if (mode === 'ambu') {
+                        const visualPress = Math.min(currPressRef.current, 60);
+                        const angle = (visualPress * 3) - 90;
+                        needleRef.current.style.transform = `rotate(${angle}deg)`;
+                    }
                 }
                 raf = requestAnimationFrame(draw);
             };
@@ -212,15 +214,56 @@
             return () => cancelAnimationFrame(raf);
         }, [mode, isVPPActive, isMaskSealed, pipSetting]);
 
-        const hideNeedle = mode === 'ambu' && !guidedMode;
+        // VISTA 1: AMBÚ EN MODO ECOE (Sin manómetro, 100% ciego como en la vida real)
+        if (mode === 'ambu' && !guidedMode) {
+            return (
+                <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative">
+                    <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex flex-col items-center justify-center bg-slate-950 relative p-4 text-center">
+                        <span className="text-[10px] font-black text-slate-500 uppercase leading-tight">Sin<br/>Manómetro</span>
+                    </div>
+                    <span className="text-[7px] font-black text-rose-500 mt-2 uppercase tracking-widest text-center">Precaución ECOE</span>
+                </div>
+            );
+        }
 
+        // VISTA 2: AMBÚ EN MODO GUIADO (Manómetro de precisión 0-60 con zona de peligro)
+        if (mode === 'ambu' && guidedMode) {
+            const dangerLimit = isPremature ? 28 : 38;
+            return (
+                <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative">
+                    <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative overflow-hidden">
+                        
+                        {/* Arco Rojo indicando la zona de peligro según el paciente */}
+                        <div className="absolute top-0 left-0 w-full h-full rounded-full border-[12px] border-transparent" 
+                             style={{ 
+                               borderTopColor: 'rgba(239, 68, 68, 0.2)', 
+                               borderRightColor: 'rgba(239, 68, 68, 0.2)', 
+                               transform: `rotate(${((dangerLimit/60)*180) - 135}deg)` 
+                             }}></div>
+
+                        <div ref={needleRef} className="absolute w-1 h-12 bg-white origin-bottom transition-transform duration-75"
+                             style={{ bottom: '50%' }}></div>
+                        <div className="w-2 h-2 bg-rose-500 rounded-full z-10"></div>
+                        
+                        {/* Escala especial de 0 a 60 */}
+                        <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[7px] font-bold text-slate-400">30</div>
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-rose-500">60</div>
+                        <div className="absolute left-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-slate-400">0</div>
+                        
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[7px] font-black text-blue-400">AMBÚ</div>
+                    </div>
+                    <span className="text-[7px] font-black text-slate-500 mt-2 uppercase tracking-widest text-center">Guía de Presión</span>
+                </div>
+            );
+        }
+
+        // VISTA 3: NEOPUFF (Clásico 0-40)
         return (
             <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative">
                 <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative">
                     <div ref={needleRef} className="absolute w-1 h-12 bg-blue-500 origin-bottom transition-transform duration-75"
-                         style={{ bottom: '50%', opacity: hideNeedle ? 0 : 1 }}></div>
+                         style={{ bottom: '50%' }}></div>
                     <div className="w-2 h-2 bg-white rounded-full z-10"></div>
-                    {/* ETIQUETAS MANTENIDAS EXACTAMENTE COMO EL USUARIO LAS PUSO */}
                     <div className="absolute top-1 text-[7px] font-bold text-slate-500">20</div>
                     <div className="absolute right-1 text-[7px] font-bold text-slate-500">40</div>
                     <div className="absolute left-1 text-[7px] font-bold text-slate-500">0</div>
@@ -264,7 +307,6 @@
         const timerIntervalRef = useRef(null);
         const ventPressStartRef = useRef(0);
 
-        // Refs para el motor de simulación
         const stateRef = useRef({
             hr: 0, spo2: 0,
             mode: 'neopuff', pip: 20, flow: 10,
@@ -274,7 +316,7 @@
             sopaSteps: [], thermalActions: [], drugs: [], equips: [],
             lastVentTime: 0, timestamps: {},
             lungDamage: 0, hyperventilation: false,
-            spontaneousBreathing: false // NUEVA PROPIEDAD: Respiración espontánea
+            spontaneousBreathing: false 
         });
 
         const hrDisplayRef = useRef(0);
@@ -370,38 +412,30 @@
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
 
-                    // --- EVALUAR RESPIRACIÓN ESPONTÁNEA ---
-                    // Si el niño se mantiene sobre 100 y no tiene daño estructural grave sin resolver
                     if (hr >= 100 && nt > 30) {
                         if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
-                            // Prematuro severo SIN surfactante no puede sostener respiración espontánea útil (SDR)
                             stateRef.current.spontaneousBreathing = false;
                         } else {
-                            // Recupera Drive Respiratorio
                             stateRef.current.spontaneousBreathing = true;
                         }
                     } else if (hr < 80) {
-                        // Pierde Drive Respiratorio (Apnea secundaria)
                         stateRef.current.spontaneousBreathing = false;
                     }
 
-                    // Penalización de Temperatura
                     if (currentCase.eg < 32) {
                         if (thermalActions.includes('secar')) hrChange -= 1.0;
                         if (!thermalActions.includes('bolsa_poli')) hrChange -= 0.5;
                     }
 
-                    // Penalización por Barotrauma (Neumotórax a Tensión)
                     if (lungDamage > 0) {
                         hrChange -= (lungDamage * 1.5);
-                        spo2Change -= (lungDamage * 2.0); // Cae dramáticamente a 0
+                        spo2Change -= (lungDamage * 2.0); 
                     }
 
                     if (hyperventilation) {
-                        hrChange -= 0.8; // Atrapamiento aéreo
+                        hrChange -= 0.8; 
                     }
 
-                    // --- CÁLCULO DE INTERVENCIONES ---
                     if (isVenting && lungDamage === 0) {
                         if (f < 8 && m === 'neopuff') {
                             hrChange -= 1.0;
@@ -419,20 +453,20 @@
                         }
                     } else if (m === 'freeflow') {
                         if (stateRef.current.spontaneousBreathing && lungDamage === 0) {
-                            hrChange = 0.5; // El niño respira y le damos O2, mejora rápido
+                            hrChange = 0.5; 
                             spo2Change = 1.0;
                             stateRef.current.stableTimer += 1;
                         } else {
-                            hrChange = -0.2; // Apnea con flujo libre no es suficiente
+                            hrChange = -0.2; 
                             spo2Change = 0.2;
                         }
                     } else if (m === 'apagado') {
                         if (stateRef.current.spontaneousBreathing && lungDamage === 0) {
-                            hrChange = 0; // FC se estabiliza sola
-                            spo2Change = 0.5; // Sube lentamente con aire ambiental
+                            hrChange = 0; 
+                            spo2Change = 0.5; 
                             stateRef.current.stableTimer += 1;
                         } else {
-                            hrChange = -1.5; // Si apagamos y estaba en apnea, colapsa.
+                            hrChange = -1.5; 
                             spo2Change = -1.0;
                             stateRef.current.stableTimer = 0;
                         }
@@ -472,7 +506,6 @@
             }
         };
 
-        // --- LÓGICA DE VENTILACIÓN SENSITIVA (AMBU/NEOPUFF) ---
         const handleVentStart = (e) => {
             if (e) e.preventDefault();
             if (mode === 'freeflow' || mode === 'apagado') return;
@@ -496,7 +529,6 @@
             stateRef.current.lastVentTime = now;
             setVentCount(c => c + 1);
 
-            // Calcular Barotrauma (Neumotórax) Exacto
             let generatedPip = pip; 
             if (mode === 'ambu') {
                 generatedPip = Math.min(60, 10 + (pressDuration / 15)); 
@@ -507,7 +539,6 @@
                 stateRef.current.lungDamage += 1;
                 addLog(`ALERTA: Presión excesiva entregada (${Math.round(generatedPip)} cmH2O). Riesgo barotrauma.`, "error");
             } else if (mode === 'neopuff' && pressDuration > 1500) {
-                // El NeoPuff no genera más presión, pero mantener el dedo pegado mucho rato (TI prolongado) daña igual.
                 stateRef.current.lungDamage += 0.5;
                 addLog(`ALERTA: Tiempo Inspiratorio prolongado. Riesgo de daño pulmonar.`, "error");
             }
@@ -561,7 +592,6 @@
             setCurrentCase(c);
             setGameState('vignette');
             setTimer(0); setLogs([]); 
-            // NO limpiamos selectedEquip aquí para mantenerlo si el usuario ya preparó el carro
             setAskedBriefing([]); setAskedBirth([]);
             setVentCount(0); setAssistantHint("");
             setPreArrivalTimer(25); setIsMaskSealed(false);
@@ -578,7 +608,6 @@
             };
         };
 
-        // --- DEBRIEFING ---
         const Debriefing = () => {
             const t = stateRef.current.timestamps;
             const actions = stateRef.current.thermalActions;
@@ -627,16 +656,13 @@
             );
         };
 
-        // =====================================================================
-        // VISTAS
-        // =====================================================================
         if (gameState === 'menu') return (
             <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
                 <div className="bg-blue-600 p-8 rounded-[3rem] shadow-2xl mb-8">
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 19:03</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 19:15</p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -766,7 +792,7 @@
                 {/* ── PANEL IZQUIERDO ── */}
                 <div className="flex-1 flex flex-col gap-6">
 
-                    {/* Monitor de signos vitales (Ondas Realistas Canvas) */}
+                    {/* Monitor de signos vitales */}
                     <div className={`bg-black border-4 rounded-[2.5rem] p-6 shadow-2xl transition-colors ${timer >= 60 && vitals.hr < 100 ? 'pulse-red' : 'border-slate-800'}`}>
                         <div className="flex justify-between items-center mb-4">
                             <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Monitor ECOE v3.0</span>
@@ -864,7 +890,7 @@
                     {/* Área de ventilación */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-8 bg-slate-950/50 rounded-3xl border border-slate-800/50">
                         <div className="flex flex-col items-center gap-4">
-                            {/* Botón de sello — actualiza el ref inmediatamente */}
+                            {/* Botón de sello */}
                             {(mode === 'neopuff' || mode === 'ambu') && (
                                 <button onClick={() => {
                                     const newVal = !isMaskSealed;
@@ -892,8 +918,7 @@
                             </div>
                         </div>
 
-                        {/* Manómetro Dinámico */}
-                        <Manometer mode={mode} isVPPActive={isVPPActive} isMaskSealed={isMaskSealed} pipSetting={pip} guidedMode={guidedMode} ventPressStartRef={ventPressStartRef} />
+                        <Manometer mode={mode} isVPPActive={isVPPActive} isMaskSealed={isMaskSealed} pipSetting={pip} guidedMode={guidedMode} ventPressStartRef={ventPressStartRef} isPremature={currentCase?.eg < 32} />
                     </div>
 
                     {/* Fármacos */}

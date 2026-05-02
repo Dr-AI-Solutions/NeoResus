@@ -16,7 +16,10 @@
         @keyframes pulse-border { 0%, 100% { opacity: 1; border-color: #ef4444; } 50% { opacity: 0.5; border-color: #7f1d1d; } }
         .pulse-red { animation: pulse-border 1s infinite; }
 
+        /* Ondas continuas — animación controlada por JS directo al DOM, sin re-render React */
         .wave-container { height: 44px; width: 100%; overflow: hidden; position: relative; margin-top: 6px; }
+        .wave-path { animation: wave-scroll linear infinite; }
+        @keyframes wave-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
         input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
         input[type=range]::-webkit-slider-runnable-track { height: 6px; background: #1e293b; border-radius: 10px; }
@@ -79,8 +82,7 @@
 
     // =============================================================
     // COMPONENTE ONDA CONTINUA (CANVAS REAL-TIME)
-    // Lógica nueva: Genera trazados fisiológicos reales en vivo
-    // No toca el diseño ni el layout.
+    // Motor Lógico Refactorizado: Se adapta a FC y SpO2 instantáneamente.
     // =============================================================
     const WaveMonitor = ({ type, hrRef, spo2Ref, color }) => {
         const canvasRef = useRef(null);
@@ -91,13 +93,18 @@
             let animationFrameId;
             let x = 0;
             let lastY = 22;
-            const speed = 1.5; // Velocidad de barrido del monitor
+            const speed = 1.5; 
             const width = canvas.width;
             const height = canvas.height;
-            let time = 0;
-            const sweepWidth = 15; // Espacio borrado por delante del haz
+            const sweepWidth = 15; 
+            
+            let phase = 0;
+            let lastTime = performance.now();
 
-            const draw = () => {
+            const draw = (now) => {
+                const delta = (now - lastTime) / 1000; // segundos reales
+                lastTime = now;
+
                 const hr = hrRef.current || 0;
                 const spo2 = spo2Ref.current || 0;
 
@@ -105,35 +112,35 @@
 
                 if (hr > 0) {
                     const beatIntervalSec = 60 / hr; 
-                    const phase = (time % beatIntervalSec) / beatIntervalSec;
+                    phase += delta / beatIntervalSec;
+                    if (phase >= 1) phase -= 1; // loop continuo
 
                     if (type === 'ecg') {
-                        // Morfología realista de ECG (P, QRS, T)
-                        if (phase > 0.05 && phase < 0.1) targetY = height/2 - 4; // Onda P
-                        else if (phase > 0.15 && phase < 0.17) targetY = height/2 + 6; // Onda Q
-                        else if (phase >= 0.17 && phase < 0.20) targetY = height/2 - 20; // Onda R (peak)
-                        else if (phase >= 0.20 && phase < 0.23) targetY = height/2 + 8; // Onda S
-                        else if (phase > 0.35 && phase < 0.45) targetY = height/2 - 6; // Onda T
-                        else targetY = height/2; // Línea isoeléctrica
+                        const hrFactor = Math.min(1.5, Math.max(0.8, hr / 100)); // Ajuste morfológico sutil
+                        if (phase > 0.05 && phase < 0.1) targetY = height/2 - (4 * hrFactor); // P
+                        else if (phase > 0.15 && phase < 0.17) targetY = height/2 + (6 * hrFactor); // Q
+                        else if (phase >= 0.17 && phase < 0.20) targetY = height/2 - (20 * hrFactor); // R
+                        else if (phase >= 0.20 && phase < 0.23) targetY = height/2 + (8 * hrFactor); // S
+                        else if (phase > 0.35 && phase < 0.45) targetY = height/2 - (6 * hrFactor); // T
+                        else targetY = height/2;
                     } else if (type === 'pleth') {
-                        // Morfología de Pletismografía (SpO2) con amplitud dinámica
                         const scale = Math.max(0.1, spo2 / 100);
-                        const amp = 16 * scale;
+                        const amp = 16 * scale; // Amplitud ligada 100% a la saturación
                         if (phase < 0.2) { 
-                            targetY = height/2 + 15 - (phase/0.2) * amp * 2; // Sístole rápida
+                            targetY = height/2 + 15 - (phase/0.2) * amp * 2; 
                         } else if (phase < 0.35) { 
-                            targetY = height/2 + 15 - amp * 2 + ((phase-0.2)/0.15) * (amp * 0.8); // Caída a muesca dicrótica
+                            targetY = height/2 + 15 - amp * 2 + ((phase-0.2)/0.15) * (amp * 0.8); 
                         } else if (phase < 0.45) { 
-                            targetY = height/2 + 15 - amp * 1.2 - Math.sin((phase-0.35)*Math.PI*10)*2; // Muesca
+                            targetY = height/2 + 15 - amp * 1.2 - Math.sin((phase-0.35)*Math.PI*10)*2; 
                         } else { 
-                            targetY = height/2 + 15 - amp * 1.2 + ((phase-0.45)/0.55) * (amp * 1.2); // Diástole lenta
+                            targetY = height/2 + 15 - amp * 1.2 + ((phase-0.45)/0.55) * (amp * 1.2); 
                         }
                     }
                 } else {
-                    targetY = height / 2; // Flatline (Línea plana)
+                    targetY = height / 2; // Asistolia o sin sensor
                 }
 
-                // Filtro para suavizar el dibujo
+                // Smooth out
                 const y = lastY + (targetY - lastY) * (type === 'ecg' ? 0.6 : 0.3);
 
                 ctx.beginPath();
@@ -145,12 +152,9 @@
                 ctx.stroke();
 
                 lastY = y;
-
-                // Efecto de barrido (limpiar por delante)
-                ctx.clearRect(x, 0, sweepWidth, height);
+                ctx.clearRect(x, 0, sweepWidth, height); // Efecto barrido monitor real
 
                 x += speed;
-                time += 1/60; // Asumiendo 60fps
 
                 if (x >= width) {
                     x = 0;
@@ -161,7 +165,7 @@
             };
 
             ctx.clearRect(0, 0, width, height);
-            draw();
+            animationFrameId = requestAnimationFrame(draw);
 
             return () => cancelAnimationFrame(animationFrameId);
         }, [color, type, hrRef, spo2Ref]);
@@ -187,6 +191,7 @@
         const [rhythmMsg, setRhythmMsg] = useState("");
         const [procModal, setProcModal] = useState(null);
         const [assistantHint, setAssistantHint] = useState("");
+        const [uiToggle, setUiToggle] = useState(0); // NUEVO: Fuerza renders visuales de feedback
 
         const [selectedEquip, setSelectedEquip] = useState([]);
         const [askedBriefing, setAskedBriefing] = useState([]);
@@ -215,11 +220,9 @@
             lastVentTime: 0, timestamps: {}
         });
 
-        // Refs para WaveMonitor Canvas
         const hrDisplayRef = useRef(0);
         const spo2DisplayRef = useRef(0);
 
-        // Sincronizar controles de ventilación al ref
         useEffect(() => {
             stateRef.current.mode = mode;
             stateRef.current.pip = pip;
@@ -343,7 +346,6 @@
                     stateRef.current.hr = newHr;
                     stateRef.current.spo2 = newSpo2;
 
-                    // Actualizar refs del Canvas Monitor en tiempo real
                     hrDisplayRef.current = Math.floor(newHr);
                     spo2DisplayRef.current = Math.floor(newSpo2);
 
@@ -391,6 +393,7 @@
             setTimeout(() => { setIsVPPActive(false); setRhythmMsg(""); }, 300);
         };
 
+        // LÓGICA REFINADA DE REGISTRO: Fuerza el update visual para no confundir al usuario
         const registerAction = (type, value) => {
             markTimestamp(value);
             if (type === 'thermal') {
@@ -399,16 +402,19 @@
                     if (value === 'secar' && currentCase.eg < 32)
                         addLog("ERROR CRÍTICO: Prematuros <32s NO se secan. Riesgo hipotermia.", "error");
                     else addLog(`Paso: ${value.replace(/_/g, ' ')} realizado.`, 'correct');
+                    setUiToggle(p => p + 1); // Dispara actualización del botón
                 }
             } else if (type === 'sopa') {
                 if (!stateRef.current.sopaSteps.includes(value)) {
                     stateRef.current.sopaSteps.push(value);
                     addLog(`MR SOPA [${value}] ejecutado.`, 'correct');
+                    setUiToggle(p => p + 1);
                 }
             } else if (type === 'drug') {
                 if (!stateRef.current.drugs.includes(value)) {
                     stateRef.current.drugs.push(value);
                     addLog(`Fármaco administrado: ${value}.`, 'correct');
+                    setUiToggle(p => p + 1);
                 }
             }
         };
@@ -417,7 +423,8 @@
             const c = CASES[Math.floor(Math.random() * CASES.length)];
             setCurrentCase(c);
             setGameState('vignette');
-            setTimer(0); setLogs([]); setSelectedEquip([]);
+            setTimer(0); setLogs([]); 
+            // NO limpiamos selectedEquip aquí para mantenerlo si el usuario ya preparó el carro
             setAskedBriefing([]); setAskedBirth([]);
             setVentCount(0); setAssistantHint("");
             setPreArrivalTimer(25); setIsMaskSealed(false);
@@ -427,7 +434,7 @@
             stateRef.current = {
                 hr: c.hr, spo2: c.spo2, mode: 'neopuff', pip: 20, flow: 10,
                 isMaskSealed: false, timerValue: 0, stableTimer: 0,
-                sopaSteps: [], thermalActions: [], drugs: [], equips: [],
+                sopaSteps: [], thermalActions: [], drugs: [], equips: selectedEquip,
                 lastVentTime: 0, timestamps: {}
             };
         };
@@ -498,7 +505,7 @@
                     <p className="text-[10px] text-slate-500 italic">{guidedMode ? "El asistente sugiere pasos. Ideal para aprender el protocolo." : "Sin ayudas. Auditoría estricta de tiempos AHA."}</p>
                 </div>
 
-                <button onClick={startGame} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
+                <button onClick={() => { setSelectedEquip([]); startGame(); }} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
             </div>
         );
 
@@ -553,7 +560,7 @@
                     </div>
                 ))}
                 <div className="fixed bottom-0 left-0 right-0 p-8 bg-slate-900 border-t border-slate-800 max-w-4xl mx-auto rounded-t-[3rem] z-50 shadow-2xl">
-                    <button onClick={() => setGameState('setup')} className="w-full bg-emerald-600 py-5 rounded-[2rem] font-black uppercase shadow-xl tracking-widest active:scale-95 transition-all">Confirmar e Ir a Sala</button>
+                    <button onClick={() => { stateRef.current.equips = selectedEquip; setGameState('setup'); }} className="w-full bg-emerald-600 py-5 rounded-[2rem] font-black uppercase shadow-xl tracking-widest active:scale-95 transition-all">Confirmar e Ir a Sala</button>
                 </div>
             </div>
         );
@@ -645,7 +652,7 @@
                                 {['neopuff','ambu','freeflow','apagado'].map(m => (
                                     <button key={m}
                                         disabled={m !== 'apagado' && !selectedEquip.includes(m === 'freeflow' ? 'neopuff' : m)}
-                                        onClick={() => { setMode(m); if (m !== 'neopuff' && m !== 'ambu') setIsMaskSealed(false); stateRef.current.isMaskSealed = false; }}
+                                        onClick={() => { setMode(m); if (m !== 'neopuff' && m !== 'ambu') { setIsMaskSealed(false); stateRef.current.isMaskSealed = false; } stateRef.current.mode = m; }}
                                         className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${mode === m ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-800 disabled:opacity-20'}`}>{m}</button>
                                 ))}
                             </div>
@@ -657,20 +664,18 @@
                         </div>
                     </div>
 
-                    {/* Pasos iniciales (Toma los de Claude, pero corrige el ID de bolsa_poli) */}
+                    {/* Pasos iniciales */}
                     <div className="bg-slate-950 p-4 rounded-3xl border border-slate-800">
                         <h4 className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Pasos Iniciales / Temperatura</h4>
                         <div className="flex flex-wrap gap-2">
-                            {[
-                                { action:'secar', label:'Secar' }, { action:'estimular', label:'Estimular' },
-                                { action:'posicionar', label:'Olfateo' }, { action:'aspirar', label:'Aspirar' }
-                            ].map(b => (
-                                <button key={b.action} onClick={() => registerAction('thermal', b.action)}
-                                    className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 active:scale-95 transition-all">{b.label}</button>
-                            ))}
-                            <button disabled={!selectedEquip.includes('bolsa_poli')} onClick={() => registerAction('thermal', 'bolsa_poli')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Bolsa Poli</button>
-                            <button disabled={!selectedEquip.includes('gorro')} onClick={() => registerAction('thermal', 'gorro')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Gorro</button>
-                            <button disabled={!selectedEquip.includes('colchon')} onClick={() => registerAction('thermal', 'colchon')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Colchón</button>
+                            <button onClick={() => registerAction('thermal', 'secar')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('secar') ? 'bg-blue-600 border-blue-400 text-white' : 'border-slate-700 hover:bg-slate-800 bg-slate-800 text-slate-300'}`}>Secar</button>
+                            <button onClick={() => registerAction('thermal', 'estimular')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('estimular') ? 'bg-blue-600 border-blue-400 text-white' : 'border-slate-700 hover:bg-slate-800 bg-slate-800 text-slate-300'}`}>Estimular</button>
+                            <button onClick={() => registerAction('thermal', 'posicionar')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('posicionar') ? 'bg-blue-600 border-blue-400 text-white' : 'border-slate-700 hover:bg-slate-800 bg-slate-800 text-slate-300'}`}>Olfateo</button>
+                            <button onClick={() => registerAction('thermal', 'aspirar')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('aspirar') ? 'bg-blue-600 border-blue-400 text-white' : 'border-slate-700 hover:bg-slate-800 bg-slate-800 text-slate-300'}`}>Aspirar</button>
+                            
+                            {selectedEquip.includes('bolsa_poli') && <button onClick={() => registerAction('thermal', 'bolsa_poli')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('bolsa_poli') ? 'bg-emerald-600 border-emerald-400 text-white' : 'border-slate-700 hover:bg-slate-800 text-slate-300'}`}>Bolsa Poli</button>}
+                            {selectedEquip.includes('gorro') && <button onClick={() => registerAction('thermal', 'gorro')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('gorro') ? 'bg-emerald-600 border-emerald-400 text-white' : 'border-slate-700 hover:bg-slate-800 text-slate-300'}`}>Gorro</button>}
+                            {selectedEquip.includes('colchon') && <button onClick={() => registerAction('thermal', 'colchon')} className={`text-[9px] px-4 py-2 rounded-xl font-black uppercase border transition-all ${stateRef.current.thermalActions.includes('colchon') ? 'bg-emerald-600 border-emerald-400 text-white' : 'border-slate-700 hover:bg-slate-800 text-slate-300'}`}>Colchón</button>}
                         </div>
                     </div>
 
@@ -712,10 +717,10 @@
                         </div>
                     </div>
 
-                    {/* Área de ventilación (La que pidió conservar intacta) */}
+                    {/* Área de ventilación */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-8 bg-slate-950/50 rounded-3xl border border-slate-800/50">
                         <div className="flex flex-col items-center gap-4">
-                            {/* Botón de sello — actualiza el ref inmediatamente */}
+                            {/* Botón de sello */}
                             {(mode === 'neopuff' || mode === 'ambu') && (
                                 <button onClick={() => {
                                     const newVal = !isMaskSealed;
@@ -760,8 +765,8 @@
 
                     {/* Fármacos */}
                     <div className="flex gap-4">
-                        <button onClick={() => registerAction('drug','surfactante')} disabled={!selectedEquip.includes('surfactante')} className="flex-1 bg-violet-700 hover:bg-violet-600 py-5 rounded-[2rem] font-black text-[10px] uppercase shadow-xl disabled:opacity-30 tracking-widest transition-all">Surfactante</button>
-                        <button onClick={() => registerAction('drug','adrenalina')} disabled={!selectedEquip.includes('adrenalina')} className="flex-1 bg-rose-700 hover:bg-rose-600 py-5 rounded-[2rem] font-black text-[10px] uppercase shadow-xl disabled:opacity-30 tracking-widest transition-all">Adrenalina</button>
+                        <button onClick={() => registerAction('drug','surfactante')} disabled={!selectedEquip.includes('surfactante')} className={`flex-1 py-5 rounded-[2rem] font-black text-[10px] uppercase shadow-xl transition-all ${stateRef.current.drugs.includes('surfactante') ? 'bg-violet-500 text-white' : 'bg-violet-700 hover:bg-violet-600 disabled:opacity-30'}`}>Surfactante</button>
+                        <button onClick={() => registerAction('drug','adrenalina')} disabled={!selectedEquip.includes('adrenalina')} className={`flex-1 py-5 rounded-[2rem] font-black text-[10px] uppercase shadow-xl transition-all ${stateRef.current.drugs.includes('adrenalina') ? 'bg-rose-500 text-white' : 'bg-rose-700 hover:bg-rose-600 disabled:opacity-30'}`}>Adrenalina</button>
                     </div>
                 </div>
 

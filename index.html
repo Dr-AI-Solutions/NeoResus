@@ -174,7 +174,7 @@
 
     // =============================================================
     // MANÓMETRO DINÁMICO INDEPENDIENTE
-    // Controla la física de la aguja sin re-renders de React
+    // Lógica Corregida: El Ambú calza con la presión real sin lag. NeoPuff salta inmediato.
     // =============================================================
     const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef }) => {
         const needleRef = useRef(null);
@@ -185,24 +185,25 @@
             const draw = () => {
                 let target = 0;
                 if (mode === 'neopuff') {
-                    // NeoPuff: 5 de base si está sellado, PIP si se aprieta. No pasa del límite.
+                    // NeoPuff: 5 de base si está sellado, PIP si se aprieta. 
                     if (isMaskSealed) target = isVPPActive ? pipSetting : 5;
                 } else if (mode === 'ambu') {
-                    // Ambú: Sube dependiendo de cuánto tiempo se mantenga apretado
+                    // Ambú: Sube inmediatamente dependiendo de cuánto tiempo se mantenga apretado
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
-                        target = Math.min(60, 10 + (dur / 15)); // Hasta 60 cmH2O si lo dejas presionado
+                        target = Math.min(60, 10 + (dur / 15)); 
                     } else {
-                        target = 0; // El ambú sin válvula pierde la PEEP
+                        target = 0; 
                     }
                 }
 
-                // Efecto de movimiento suave
-                currPressRef.current += (target - currPressRef.current) * 0.3;
+                // Ajuste de "fricción" de la aguja. NeoPuff casi instantáneo, Ambú sigue la mano.
+                const smoothFactor = mode === 'neopuff' ? 0.8 : 0.8;
+                currPressRef.current += (target - currPressRef.current) * smoothFactor;
 
                 if (needleRef.current) {
-                    // Matemática del reloj: 0-> -90°, 20-> 0°, 40-> 90°
-                    const angle = (currPressRef.current * 4.5) - 90;
+                    const visualPress = Math.min(currPressRef.current, 45); // No dejar que gire loco visualmente más de 45
+                    const angle = (visualPress * 4.5) - 90;
                     needleRef.current.style.transform = `rotate(${angle}deg)`;
                 }
                 raf = requestAnimationFrame(draw);
@@ -219,6 +220,7 @@
                     <div ref={needleRef} className="absolute w-1 h-12 bg-blue-500 origin-bottom transition-transform duration-75"
                          style={{ bottom: '50%', opacity: hideNeedle ? 0 : 1 }}></div>
                     <div className="w-2 h-2 bg-white rounded-full z-10"></div>
+                    {/* ETIQUETAS MANTENIDAS EXACTAMENTE COMO EL USUARIO LAS PUSO */}
                     <div className="absolute top-1 text-[7px] font-bold text-slate-500">20</div>
                     <div className="absolute right-1 text-[7px] font-bold text-slate-500">40</div>
                     <div className="absolute left-1 text-[7px] font-bold text-slate-500">0</div>
@@ -243,6 +245,7 @@
         const [rhythmMsg, setRhythmMsg] = useState("");
         const [procModal, setProcModal] = useState(null);
         const [assistantHint, setAssistantHint] = useState("");
+        const [uiToggle, setUiToggle] = useState(0);
 
         const [selectedEquip, setSelectedEquip] = useState([]);
         const [askedBriefing, setAskedBriefing] = useState([]);
@@ -261,7 +264,7 @@
         const timerIntervalRef = useRef(null);
         const ventPressStartRef = useRef(0);
 
-        // Refs para el motor de simulación (evitan closures stale)
+        // Refs para el motor de simulación
         const stateRef = useRef({
             hr: 0, spo2: 0,
             mode: 'neopuff', pip: 20, flow: 10,
@@ -270,10 +273,10 @@
             stableTimer: 0,
             sopaSteps: [], thermalActions: [], drugs: [], equips: [],
             lastVentTime: 0, timestamps: {},
-            lungDamage: 0, hyperventilation: false
+            lungDamage: 0, hyperventilation: false,
+            spontaneousBreathing: false // NUEVA PROPIEDAD: Respiración espontánea
         });
 
-        // Refs para WaveMonitor Canvas
         const hrDisplayRef = useRef(0);
         const spo2DisplayRef = useRef(0);
 
@@ -301,7 +304,7 @@
         // --- ASISTENTE GUIADO ---
         useEffect(() => {
             if (!guidedMode || gameState !== 'resus') return;
-            const { hr, thermalActions, sopaSteps, drugs, mode: m, lungDamage } = stateRef.current;
+            const { hr, thermalActions, sopaSteps, drugs, mode: m, lungDamage, spontaneousBreathing } = stateRef.current;
             if (timer < 30) {
                 if (currentCase.eg < 32 && !thermalActions.includes('bolsa_poli')) {
                     setAssistantHint("PASO 1: Prematuro extremo. Usa BOLSA POLI y GORRO. NO lo seques.");
@@ -312,6 +315,8 @@
                 }
             } else if (lungDamage > 0) {
                 setAssistantHint("¡CUIDADO! Presión excesiva entregada. Posible Neumotórax a Tensión.");
+            } else if (spontaneousBreathing) {
+                setAssistantHint("¡Excelente! El paciente recuperó el esfuerzo respiratorio. Evalúa apagar soporte.");
             } else if (hr < 100 && timer >= 30) {
                 if (m === 'apagado' || m === 'freeflow') {
                     setAssistantHint("PASO 2: FC < 100 lpm. Selecciona NeoPuff o Ambu y sella la mascarilla.");
@@ -324,11 +329,11 @@
                 }
             } else if (hr >= 100) {
                 if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
-                    setAssistantHint("PASO 5: Bien. FC estable. Pulmón inmaduro: administra Surfactante.");
+                    setAssistantHint("PASO 5: FC estable, pero pulmón inmaduro no cede. Administra Surfactante antes de suspender VPP.");
                 } else if (m !== 'apagado') {
-                    setAssistantHint("¡Casi! Signos estables. Cambia a modo 'Apagado' para confirmar respiración espontánea.");
+                    setAssistantHint("Signos vitales mejorando. Cambia a modo 'Apagado' para confirmar respiración espontánea.");
                 } else {
-                    setAssistantHint("Evaluando respiración espontánea. Mantén 'Apagado' unos segundos...");
+                    setAssistantHint("Evaluando respiración espontánea en aire ambiente...");
                 }
             }
         }, [timer, guidedMode, gameState, currentCase, ventCount]);
@@ -342,6 +347,7 @@
                 stateRef.current.stableTimer = 0;
                 stateRef.current.lungDamage = 0;
                 stateRef.current.hyperventilation = false;
+                stateRef.current.spontaneousBreathing = false;
                 
                 hrDisplayRef.current = currentCase.hr;
                 spo2DisplayRef.current = currentCase.spo2;
@@ -364,21 +370,38 @@
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
 
+                    // --- EVALUAR RESPIRACIÓN ESPONTÁNEA ---
+                    // Si el niño se mantiene sobre 100 y no tiene daño estructural grave sin resolver
+                    if (hr >= 100 && nt > 30) {
+                        if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
+                            // Prematuro severo SIN surfactante no puede sostener respiración espontánea útil (SDR)
+                            stateRef.current.spontaneousBreathing = false;
+                        } else {
+                            // Recupera Drive Respiratorio
+                            stateRef.current.spontaneousBreathing = true;
+                        }
+                    } else if (hr < 80) {
+                        // Pierde Drive Respiratorio (Apnea secundaria)
+                        stateRef.current.spontaneousBreathing = false;
+                    }
+
+                    // Penalización de Temperatura
                     if (currentCase.eg < 32) {
                         if (thermalActions.includes('secar')) hrChange -= 1.0;
                         if (!thermalActions.includes('bolsa_poli')) hrChange -= 0.5;
                     }
 
-                    // Penalización masiva por Neumotórax a Tensión
+                    // Penalización por Barotrauma (Neumotórax a Tensión)
                     if (lungDamage > 0) {
                         hrChange -= (lungDamage * 1.5);
-                        spo2Change -= (lungDamage * 2.0);
+                        spo2Change -= (lungDamage * 2.0); // Cae dramáticamente a 0
                     }
 
                     if (hyperventilation) {
                         hrChange -= 0.8; // Atrapamiento aéreo
                     }
 
+                    // --- CÁLCULO DE INTERVENCIONES ---
                     if (isVenting && lungDamage === 0) {
                         if (f < 8 && m === 'neopuff') {
                             hrChange -= 1.0;
@@ -395,17 +418,22 @@
                             }
                         }
                     } else if (m === 'freeflow') {
-                        hrChange = -0.2; spo2Change = 0.2;
-                    } else if (m === 'apagado') {
-                        if (hr >= 100 && spo2 >= 85) {
-                            if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
-                                hrChange = -1.0;
-                            } else {
-                                hrChange = 0; spo2Change = 0.1;
-                                stateRef.current.stableTimer += 1;
-                            }
+                        if (stateRef.current.spontaneousBreathing && lungDamage === 0) {
+                            hrChange = 0.5; // El niño respira y le damos O2, mejora rápido
+                            spo2Change = 1.0;
+                            stateRef.current.stableTimer += 1;
                         } else {
-                            hrChange = -1.5; spo2Change = -1.0;
+                            hrChange = -0.2; // Apnea con flujo libre no es suficiente
+                            spo2Change = 0.2;
+                        }
+                    } else if (m === 'apagado') {
+                        if (stateRef.current.spontaneousBreathing && lungDamage === 0) {
+                            hrChange = 0; // FC se estabiliza sola
+                            spo2Change = 0.5; // Sube lentamente con aire ambiental
+                            stateRef.current.stableTimer += 1;
+                        } else {
+                            hrChange = -1.5; // Si apagamos y estaba en apnea, colapsa.
+                            spo2Change = -1.0;
                             stateRef.current.stableTimer = 0;
                         }
                     }
@@ -422,7 +450,7 @@
                     setVitals({ hr: Math.floor(newHr), spo2: Math.floor(newSpo2) });
 
                     if (newHr === 0) setGameState('fail');
-                    if (stateRef.current.stableTimer >= 4 && nt > 60 && lungDamage === 0) setGameState('success');
+                    if (stateRef.current.stableTimer >= 5 && nt > 60 && lungDamage === 0) setGameState('success');
 
                 }, 1000);
             } else {
@@ -468,16 +496,20 @@
             stateRef.current.lastVentTime = now;
             setVentCount(c => c + 1);
 
-            // Calcular Barotrauma (Neumotórax)
+            // Calcular Barotrauma (Neumotórax) Exacto
             let generatedPip = pip; 
             if (mode === 'ambu') {
-                generatedPip = Math.min(60, 10 + (pressDuration / 15)); // Ambú puede llegar a 60 cmH2O
+                generatedPip = Math.min(60, 10 + (pressDuration / 15)); 
             }
 
             const damageThreshold = currentCase.eg < 32 ? 28 : 38;
             if (generatedPip > damageThreshold) {
                 stateRef.current.lungDamage += 1;
                 addLog(`ALERTA: Presión excesiva entregada (${Math.round(generatedPip)} cmH2O). Riesgo barotrauma.`, "error");
+            } else if (mode === 'neopuff' && pressDuration > 1500) {
+                // El NeoPuff no genera más presión, pero mantener el dedo pegado mucho rato (TI prolongado) daña igual.
+                stateRef.current.lungDamage += 0.5;
+                addLog(`ALERTA: Tiempo Inspiratorio prolongado. Riesgo de daño pulmonar.`, "error");
             }
 
             if (diffSeconds > 0.1) {
@@ -507,16 +539,19 @@
                     if (value === 'secar' && currentCase.eg < 32)
                         addLog("ERROR CRÍTICO: Prematuros <32s NO se secan. Riesgo hipotermia.", "error");
                     else addLog(`Paso: ${value.replace(/_/g, ' ')} realizado.`, 'correct');
+                    setUiToggle(p => p + 1);
                 }
             } else if (type === 'sopa') {
                 if (!stateRef.current.sopaSteps.includes(value)) {
                     stateRef.current.sopaSteps.push(value);
                     addLog(`MR SOPA [${value}] ejecutado.`, 'correct');
+                    setUiToggle(p => p + 1);
                 }
             } else if (type === 'drug') {
                 if (!stateRef.current.drugs.includes(value)) {
                     stateRef.current.drugs.push(value);
                     addLog(`Fármaco administrado: ${value}.`, 'correct');
+                    setUiToggle(p => p + 1);
                 }
             }
         };
@@ -525,7 +560,8 @@
             const c = CASES[Math.floor(Math.random() * CASES.length)];
             setCurrentCase(c);
             setGameState('vignette');
-            setTimer(0); setLogs([]); setSelectedEquip([]);
+            setTimer(0); setLogs([]); 
+            // NO limpiamos selectedEquip aquí para mantenerlo si el usuario ya preparó el carro
             setAskedBriefing([]); setAskedBirth([]);
             setVentCount(0); setAssistantHint("");
             setPreArrivalTimer(25); setIsMaskSealed(false);
@@ -536,8 +572,9 @@
             stateRef.current = {
                 hr: c.hr, spo2: c.spo2, mode: 'neopuff', pip: 20, flow: 10,
                 isMaskSealed: false, timerValue: 0, stableTimer: 0,
-                sopaSteps: [], thermalActions: [], drugs: [], equips: [],
-                lastVentTime: 0, timestamps: {}, lungDamage: 0, hyperventilation: false
+                sopaSteps: [], thermalActions: [], drugs: [], equips: selectedEquip,
+                lastVentTime: 0, timestamps: {}, lungDamage: 0, hyperventilation: false,
+                spontaneousBreathing: false
             };
         };
 
@@ -549,7 +586,7 @@
             const isPremature = currentCase.eg < 32;
             const rubric = [];
 
-            if (dmg > 0) rubric.push({ text: "Falta Crítica: Aplicaste presión excesiva (>30 cmH2O) causando Neumotórax a Tensión.", pass: false });
+            if (dmg > 0) rubric.push({ text: "Falta Crítica: Causaste daño pulmonar/neumotórax por presiones altas o tiempos prolongados.", pass: false });
 
             if (isPremature) {
                 if (actions.includes('secar')) rubric.push({ text: "Error: Secaste a un prematuro <32s. Causa hipotermia severa.", pass: false });
@@ -599,7 +636,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 19:03</p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -610,7 +647,7 @@
                     <p className="text-[10px] text-slate-500 italic">{guidedMode ? "El asistente sugiere pasos. Ideal para aprender el protocolo." : "Sin ayudas. Auditoría estricta de tiempos AHA."}</p>
                 </div>
 
-                <button onClick={startGame} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
+                <button onClick={() => { setSelectedEquip([]); startGame(); }} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
             </div>
         );
 
@@ -780,9 +817,9 @@
                                 <button key={b.action} onClick={() => registerAction('thermal', b.action)}
                                     className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 active:scale-95 transition-all">{b.label}</button>
                             ))}
-                            <button disabled={!selectedEquip.includes('bolsa_poli')} onClick={() => registerAction('thermal', 'bolsa_poli')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Bolsa Poli</button>
-                            <button disabled={!selectedEquip.includes('gorro')} onClick={() => registerAction('thermal', 'gorro')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Gorro</button>
-                            <button disabled={!selectedEquip.includes('colchon')} onClick={() => registerAction('thermal', 'colchon')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Colchón</button>
+                            {selectedEquip.includes('bolsa_poli') && <button onClick={() => registerAction('thermal','bolsa_poli')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 active:scale-95 transition-all">Bolsa Poli</button>}
+                            {selectedEquip.includes('gorro') && <button onClick={() => registerAction('thermal','gorro')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 active:scale-95 transition-all">Gorro</button>}
+                            {selectedEquip.includes('colchon') && <button onClick={() => registerAction('thermal','colchon')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 active:scale-95 transition-all">Colchón</button>}
                         </div>
                     </div>
 

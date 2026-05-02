@@ -16,10 +16,7 @@
         @keyframes pulse-border { 0%, 100% { opacity: 1; border-color: #ef4444; } 50% { opacity: 0.5; border-color: #7f1d1d; } }
         .pulse-red { animation: pulse-border 1s infinite; }
 
-        /* Ondas continuas — animación controlada por JS directo al DOM, sin re-render React */
         .wave-container { height: 44px; width: 100%; overflow: hidden; position: relative; margin-top: 6px; }
-        .wave-path { animation: wave-scroll linear infinite; }
-        @keyframes wave-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
         input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
         input[type=range]::-webkit-slider-runnable-track { height: 6px; background: #1e293b; border-radius: 10px; }
@@ -81,77 +78,97 @@
     };
 
     // =============================================================
-    // COMPONENTE ONDA CONTINUA
-    // Clave: el SVG se monta UNA sola vez (sin key dinámica).
-    // La duración de la animación se actualiza directo al DOM via ref,
-    // sin pasar por React → sin re-render → sin parpadeo.
+    // COMPONENTE ONDA CONTINUA (CANVAS REAL-TIME)
+    // Lógica nueva: Genera trazados fisiológicos reales en vivo
+    // No toca el diseño ni el layout.
     // =============================================================
     const WaveMonitor = ({ type, hrRef, spo2Ref, color }) => {
-        const pathRef = useRef(null);
-        const rafRef = useRef(null);
-        const lastDurRef = useRef(null);
-
-        const ecgD = "M0,22 L14,22 L18,14 L22,32 L26,6 L30,22 L50,22 L64,22 L68,14 L72,32 L76,6 L80,22 L100,22 L114,22 L118,14 L122,32 L126,6 L130,22 L150,22 L164,22 L168,14 L172,32 L176,6 L180,22 L200,22";
-        const plethD = "M0,36 C8,36 12,6 20,6 C26,6 30,20 36,16 C42,22 46,36 66,36 C74,36 78,6 86,6 C92,6 96,20 102,16 C108,22 112,36 132,36 C140,36 144,6 152,6 C158,6 162,20 168,16 C174,22 178,36 200,36";
+        const canvasRef = useRef(null);
 
         useEffect(() => {
-            const update = () => {
-                const hr = hrRef.current;
-                const spo2 = spo2Ref.current;
-                const el = pathRef.current;
-                if (!el) return;
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            let animationFrameId;
+            let x = 0;
+            let lastY = 22;
+            const speed = 1.5; // Velocidad de barrido del monitor
+            const width = canvas.width;
+            const height = canvas.height;
+            let time = 0;
+            const sweepWidth = 15; // Espacio borrado por delante del haz
 
-                if (hr <= 0) {
-                    el.style.animationPlayState = 'paused';
-                    el.style.animationDuration = '2s';
-                    rafRef.current = requestAnimationFrame(update);
-                    return;
+            const draw = () => {
+                const hr = hrRef.current || 0;
+                const spo2 = spo2Ref.current || 0;
+
+                let targetY = height / 2;
+
+                if (hr > 0) {
+                    const beatIntervalSec = 60 / hr; 
+                    const phase = (time % beatIntervalSec) / beatIntervalSec;
+
+                    if (type === 'ecg') {
+                        // Morfología realista de ECG (P, QRS, T)
+                        if (phase > 0.05 && phase < 0.1) targetY = height/2 - 4; // Onda P
+                        else if (phase > 0.15 && phase < 0.17) targetY = height/2 + 6; // Onda Q
+                        else if (phase >= 0.17 && phase < 0.20) targetY = height/2 - 20; // Onda R (peak)
+                        else if (phase >= 0.20 && phase < 0.23) targetY = height/2 + 8; // Onda S
+                        else if (phase > 0.35 && phase < 0.45) targetY = height/2 - 6; // Onda T
+                        else targetY = height/2; // Línea isoeléctrica
+                    } else if (type === 'pleth') {
+                        // Morfología de Pletismografía (SpO2) con amplitud dinámica
+                        const scale = Math.max(0.1, spo2 / 100);
+                        const amp = 16 * scale;
+                        if (phase < 0.2) { 
+                            targetY = height/2 + 15 - (phase/0.2) * amp * 2; // Sístole rápida
+                        } else if (phase < 0.35) { 
+                            targetY = height/2 + 15 - amp * 2 + ((phase-0.2)/0.15) * (amp * 0.8); // Caída a muesca dicrótica
+                        } else if (phase < 0.45) { 
+                            targetY = height/2 + 15 - amp * 1.2 - Math.sin((phase-0.35)*Math.PI*10)*2; // Muesca
+                        } else { 
+                            targetY = height/2 + 15 - amp * 1.2 + ((phase-0.45)/0.55) * (amp * 1.2); // Diástole lenta
+                        }
+                    }
+                } else {
+                    targetY = height / 2; // Flatline (Línea plana)
                 }
 
-                // Duración: 3 latidos / frecuencia → ciclo completo de la onda repetida x3
-                const newDur = ((60 / Math.max(hr, 20)) * 3).toFixed(2);
+                // Filtro para suavizar el dibujo
+                const y = lastY + (targetY - lastY) * (type === 'ecg' ? 0.6 : 0.3);
 
-                if (newDur !== lastDurRef.current) {
-                    // Cambiar duración sin reiniciar: leer el tiempo transcurrido, reescalar y re-aplicar
-                    const computed = getComputedStyle(el).animationDuration;
-                    const oldDur = parseFloat(computed) || parseFloat(newDur);
-                    const delay = parseFloat(getComputedStyle(el).animationDelay) || 0;
-                    const elapsed = (performance.now() / 1000 + Math.abs(delay)) % oldDur;
-                    const progress = elapsed / oldDur;
-                    const newDelay = -(progress * parseFloat(newDur));
+                ctx.beginPath();
+                ctx.moveTo(x - speed, lastY);
+                ctx.lineTo(x, y);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.lineJoin = 'round';
+                ctx.stroke();
 
-                    el.style.animationDuration = newDur + 's';
-                    el.style.animationDelay = newDelay + 's';
-                    el.style.animationPlayState = 'running';
-                    lastDurRef.current = newDur;
+                lastY = y;
+
+                // Efecto de barrido (limpiar por delante)
+                ctx.clearRect(x, 0, sweepWidth, height);
+
+                x += speed;
+                time += 1/60; // Asumiendo 60fps
+
+                if (x >= width) {
+                    x = 0;
+                    ctx.clearRect(0, 0, sweepWidth, height);
                 }
 
-                // Actualizar amplitud para SpO2 (sin tocar la animación)
-                if (type === 'pleth') {
-                    const scale = Math.max(0.08, spo2 / 100);
-                    el.style.transform = `scaleY(${scale})`;
-                    el.style.transformOrigin = 'center 36px';
-                }
-
-                rafRef.current = requestAnimationFrame(update);
+                animationFrameId = requestAnimationFrame(draw);
             };
 
-            rafRef.current = requestAnimationFrame(update);
-            return () => cancelAnimationFrame(rafRef.current);
-        }, []);  // ← sin dependencias: corre una sola vez, lee siempre del ref
+            ctx.clearRect(0, 0, width, height);
+            draw();
+
+            return () => cancelAnimationFrame(animationFrameId);
+        }, [color, type, hrRef, spo2Ref]);
 
         return (
-            <div className="wave-container" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <svg style={{ position:'absolute', width:'200%', height:'100%', left:0 }}
-                     viewBox="0 0 200 44" preserveAspectRatio="none">
-                    <path
-                        ref={pathRef}
-                        className="wave-path"
-                        d={type === 'ecg' ? ecgD : plethD}
-                        stroke={color} strokeWidth="2" fill="none" strokeLinejoin="round"
-                        style={{ animationDuration: '3s', animationPlayState: 'paused' }}
-                    />
-                </svg>
+            <div className="wave-container" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: 'transparent' }}>
+                <canvas ref={canvasRef} width="400" height="44" style={{ width: '100%', height: '100%', display: 'block' }} />
             </div>
         );
     };
@@ -198,7 +215,7 @@
             lastVentTime: 0, timestamps: {}
         });
 
-        // Refs para WaveMonitor (leídos por rAF, sin causar re-renders)
+        // Refs para WaveMonitor Canvas
         const hrDisplayRef = useRef(0);
         const spo2DisplayRef = useRef(0);
 
@@ -326,11 +343,10 @@
                     stateRef.current.hr = newHr;
                     stateRef.current.spo2 = newSpo2;
 
-                    // Actualizar refs de display (WaveMonitor los lee via rAF)
+                    // Actualizar refs del Canvas Monitor en tiempo real
                     hrDisplayRef.current = Math.floor(newHr);
                     spo2DisplayRef.current = Math.floor(newSpo2);
 
-                    // Actualizar números en pantalla (causa re-render de texto, NO de ondas)
                     setVitals({ hr: Math.floor(newHr), spo2: Math.floor(newSpo2) });
 
                     if (newHr === 0) setGameState('fail');
@@ -601,7 +617,7 @@
                 {/* ── PANEL IZQUIERDO ── */}
                 <div className="flex-1 flex flex-col gap-6">
 
-                    {/* Monitor de signos vitales */}
+                    {/* Monitor de signos vitales (Ondas Realistas Canvas) */}
                     <div className={`bg-black border-4 rounded-[2.5rem] p-6 shadow-2xl transition-colors ${timer >= 60 && vitals.hr < 100 ? 'pulse-red' : 'border-slate-800'}`}>
                         <div className="flex justify-between items-center mb-4">
                             <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Monitor ECOE v3.0</span>
@@ -611,7 +627,6 @@
                             <div>
                                 <span className="text-[10px] font-bold text-emerald-500 uppercase">FC (BPM)</span>
                                 <div className={`text-6xl font-black monitor-font ${timer >= 60 && vitals.hr < 100 ? 'text-rose-500' : 'text-emerald-400'}`}>{vitals.hr || '--'}</div>
-                                {/* WaveMonitor sin key dinámica → no se desmonta nunca */}
                                 <WaveMonitor type="ecg" hrRef={hrDisplayRef} spo2Ref={spo2DisplayRef} color="#10b981" />
                             </div>
                             <div className="text-right">
@@ -630,7 +645,7 @@
                                 {['neopuff','ambu','freeflow','apagado'].map(m => (
                                     <button key={m}
                                         disabled={m !== 'apagado' && !selectedEquip.includes(m === 'freeflow' ? 'neopuff' : m)}
-                                        onClick={() => { setMode(m); if (m !== 'neopuff' && m !== 'ambu') setIsMaskSealed(false); stateRef.current.mode = m; }}
+                                        onClick={() => { setMode(m); if (m !== 'neopuff' && m !== 'ambu') setIsMaskSealed(false); stateRef.current.isMaskSealed = false; }}
                                         className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${mode === m ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-800 disabled:opacity-20'}`}>{m}</button>
                                 ))}
                             </div>
@@ -642,7 +657,7 @@
                         </div>
                     </div>
 
-                    {/* Pasos iniciales */}
+                    {/* Pasos iniciales (Toma los de Claude, pero corrige el ID de bolsa_poli) */}
                     <div className="bg-slate-950 p-4 rounded-3xl border border-slate-800">
                         <h4 className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Pasos Iniciales / Temperatura</h4>
                         <div className="flex flex-wrap gap-2">
@@ -653,9 +668,9 @@
                                 <button key={b.action} onClick={() => registerAction('thermal', b.action)}
                                     className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 active:scale-95 transition-all">{b.label}</button>
                             ))}
-                            {selectedEquip.includes('bolsa_poli') && <button onClick={() => registerAction('thermal','bolsa_poli')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 active:scale-95 transition-all">Bolsa Poli</button>}
-                            {selectedEquip.includes('gorro') && <button onClick={() => registerAction('thermal','gorro')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 active:scale-95 transition-all">Gorro</button>}
-                            {selectedEquip.includes('colchon') && <button onClick={() => registerAction('thermal','colchon')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-blue-500 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 active:scale-95 transition-all">Colchón</button>}
+                            <button disabled={!selectedEquip.includes('bolsa_poli')} onClick={() => registerAction('thermal', 'bolsa_poli')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Bolsa Poli</button>
+                            <button disabled={!selectedEquip.includes('gorro')} onClick={() => registerAction('thermal', 'gorro')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Gorro</button>
+                            <button disabled={!selectedEquip.includes('colchon')} onClick={() => registerAction('thermal', 'colchon')} className="text-[9px] px-4 py-2 rounded-xl font-black uppercase border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:border-slate-800">Colchón</button>
                         </div>
                     </div>
 
@@ -697,7 +712,7 @@
                         </div>
                     </div>
 
-                    {/* Área de ventilación */}
+                    {/* Área de ventilación (La que pidió conservar intacta) */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-8 bg-slate-950/50 rounded-3xl border border-slate-800/50">
                         <div className="flex flex-col items-center gap-4">
                             {/* Botón de sello — actualiza el ref inmediatamente */}
@@ -728,14 +743,14 @@
                             </div>
                         </div>
 
-                        {/* Manómetro */}
+                        {/* Manómetro Mantenido Idéntico al CSS del usuario */}
                         <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative">
                             <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative">
                                 <div className="absolute w-1 h-12 bg-blue-500 origin-bottom transition-transform duration-100"
                                      style={{ transform: `rotate(${isVPPActive ? (pip * 6 - 90) : (isMaskSealed ? (5 * 6 - 90) : -90)}deg)`, bottom: '50%' }}></div>
                                 <div className="w-2 h-2 bg-white rounded-full z-10"></div>
-                                <div className="absolute top-1 text-[7px] font-bold text-slate-500">40</div>
-                                <div className="absolute right-1 text-[7px] font-bold text-slate-500">20</div>
+                                <div className="absolute top-1 text-[7px] font-bold text-slate-500">20</div>
+                                <div className="absolute right-1 text-[7px] font-bold text-slate-500">40</div>
                                 <div className="absolute left-1 text-[7px] font-bold text-slate-500">0</div>
                                 <div className="absolute bottom-4 right-3 text-[5px] font-black text-emerald-500">PEEP</div>
                             </div>

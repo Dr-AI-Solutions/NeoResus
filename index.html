@@ -55,15 +55,18 @@
             { id: 'tubo_25', name: 'Tubo ET 2.5' }, { id: 'tubo_30', name: 'Tubo ET 3.0' },
             { id: 'tubo_35', name: 'Tubo ET 3.5' }, { id: 'tubo_40', name: 'Tubo ET 4.0' }
         ]},
-        { category: "4. Pleurocentesis / Drenaje", items: [
+        { category: "4. Drogas y Accesos", items: [
+            { id: 'surfactante', name: 'Surfactante' }, { id: 'adrenalina', name: 'Adrenalina 1:10k' },
+            { id: 'sf', name: 'Suero Fisiológico' }, { id: 'umbilical', name: 'Catéter Umbilical' }
+        ]},
+        { category: "5. Pleurocentesis", items: [
             { id: 'branula_24', name: 'Bránula 24G' }, { id: 'branula_22', name: 'Bránula 22G' }, 
             { id: 'branula_20', name: 'Bránula 20G' }, { id: 'branula_18', name: 'Bránula 18G' },
             { id: 'llave_3', name: 'Llave 3 pasos' }, { id: 'alargador', name: 'Alargador' },
             { id: 'jeringa_3', name: 'Jeringa 3cc' }, { id: 'jeringa_10', name: 'Jeringa 10cc' },
             { id: 'jeringa_20', name: 'Jeringa 20cc' }, { id: 'trampa_agua', name: 'Trampa de Agua' }
         ]},
-        { category: "5. Drogas y Monitor", items: [
-            { id: 'surfactante', name: 'Surfactante' }, { id: 'adrenalina', name: 'Adrenalina 1:10k' },
+        { category: "6. Monitorización", items: [
             { id: 'steto', name: 'Estetoscopio' }, { id: 'spo2', name: 'Saturómetro' }
         ]}
     ];
@@ -180,11 +183,10 @@
     // COMPONENTE: BARRAS DE SIMETRÍA TORÁCICA
     // =============================================================
     const LungSymmetry = ({ isVenting, pneumoState, isSpontaneous }) => {
-        // pneumoState: 0=normal, 1=neumotórax, 2=sistema_manual_retenido, 3=trampa_agua
         const getLungHeight = (sideState) => {
             if (sideState === 1) return '15%'; // Colapsado
             if (sideState === 2) return isVenting || isSpontaneous ? '60%' : '30%'; // Manual retenido (expande a medias)
-            if (sideState === 3) return isVenting || isSpontaneous ? '90%' : '30%'; // Trampa agua (Casi normal)
+            if (sideState === 3) return isVenting || isSpontaneous ? '90%' : '30%'; // Trampa agua
             return isVenting || isSpontaneous ? '95%' : '30%'; // Normal
         }
         
@@ -207,7 +209,7 @@
     }
 
     // =============================================================
-    // MANÓMETRO INTELIGENTE (NeoPuff vs Ambú)
+    // MANÓMETRO INTELIGENTE
     // =============================================================
     const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef, isPremature }) => {
         const needleRef = useRef(null);
@@ -332,7 +334,7 @@
         const [vitals, setVitals] = useState({ hr: 0, spo2: 0 });
         const [logs, setLogs] = useState([]);
         const [rhythmMsg, setRhythmMsg] = useState("");
-        const [procModal, setProcModal] = useState(null); // 'mrsopa', 'advanced', 'pleurocentesis'
+        const [procModal, setProcModal] = useState(null); 
         const [assistantHint, setAssistantHint] = useState("");
         const [uiToggle, setUiToggle] = useState(0);
 
@@ -352,19 +354,21 @@
 
         // --- ESTADO PARA PLEUROCENTESIS ---
         const [pleuroState, setPleuroState] = useState({
-            side: null, // 'left', 'right'
+            side: null, 
             selectedBranula: null,
             selectedSyringe: null,
             hasKey: false,
-            valveTo: 'patient', // 'patient', 'room'
-            syringeAir: 0, // cc
-            pleuraAir: 100 // % remaining
+            valveTo: 'patient', 
+            syringeAir: 0, 
+            pleuraAir: 100 
         });
 
         const timerIntervalRef = useRef(null);
         const ventPressStartRef = useRef(0);
 
+        // Refs protegidos de resets indeseados
         const stateRef = useRef({
+            isInitialized: false,
             hr: 0, spo2: 0,
             mode: null, pip: 20, flow: 10,
             isMaskSealed: false,
@@ -372,9 +376,10 @@
             stableTimer: 0,
             sopaSteps: [], thermalActions: [], drugs: [], equips: [],
             lastVentTime: 0, timestamps: {}, 
-            pneumo: { left: 0, right: 0 }, // 0=ok, 1=tension, 2=manual, 3=trampa
+            pneumo: { left: 0, right: 0 }, 
             hyperventilation: false,
-            spontaneousBreathing: false 
+            spontaneousBreathing: false,
+            procModal: null 
         });
 
         const hrDisplayRef = useRef(0);
@@ -386,9 +391,9 @@
             stateRef.current.flow = flow;
             stateRef.current.equips = selectedEquip;
             stateRef.current.isMaskSealed = isMaskSealed;
-        }, [mode, pip, flow, selectedEquip, isMaskSealed]);
+            stateRef.current.procModal = procModal; // Sincroniza el modal actual sin causar re-renders
+        }, [mode, pip, flow, selectedEquip, isMaskSealed, procModal]);
 
-        // --- PRE-ARRIVAL TIMER ---
         useEffect(() => {
             if (gameState === 'setup') {
                 if (preArrivalTimer > 0) {
@@ -401,13 +406,12 @@
             }
         }, [gameState, preArrivalTimer]);
 
-        // --- ASISTENTE GUIADO ---
         useEffect(() => {
             if (!guidedMode || gameState !== 'resus') return;
             const { hr, thermalActions, sopaSteps, drugs, mode: m, pneumo, spontaneousBreathing } = stateRef.current;
             
             if (pneumo.right === 1 || pneumo.left === 1) {
-                setAssistantHint("¡EMERGENCIA! Neumotórax a Tensión. Fíjate en la asimetría del monitor y prepara Pleurocentesis.");
+                setAssistantHint("¡EMERGENCIA! Neumotórax a Tensión. Fíjate en la asimetría de expansión y prepara Pleurocentesis.");
                 return;
             }
 
@@ -442,27 +446,29 @@
             }
         }, [timer, guidedMode, gameState, currentCase, ventCount, uiToggle]);
 
-        // --- MOTOR DE SIMULACIÓN ---
+        // --- MOTOR DE SIMULACIÓN (Cero reseteos por culpa de modales) ---
         useEffect(() => {
             if (gameState === 'resus') {
-                stateRef.current.hr = currentCase.hr;
-                stateRef.current.spo2 = currentCase.spo2;
-                stateRef.current.timerValue = 0;
-                stateRef.current.stableTimer = 0;
-                stateRef.current.pneumo = { left: 0, right: 0 };
-                stateRef.current.hyperventilation = false;
-                stateRef.current.spontaneousBreathing = false;
-                
-                hrDisplayRef.current = currentCase.hr;
-                spo2DisplayRef.current = currentCase.spo2;
-                setVitals({ hr: currentCase.hr, spo2: currentCase.spo2 });
+                if (!stateRef.current.isInitialized) {
+                    stateRef.current.isInitialized = true;
+                    stateRef.current.hr = currentCase.hr;
+                    stateRef.current.spo2 = currentCase.spo2;
+                    stateRef.current.timerValue = 0;
+                    stateRef.current.stableTimer = 0;
+                    stateRef.current.pneumo = { left: 0, right: 0 };
+                    stateRef.current.hyperventilation = false;
+                    stateRef.current.spontaneousBreathing = false;
+                    
+                    hrDisplayRef.current = currentCase.hr;
+                    spo2DisplayRef.current = currentCase.spo2;
+                    setVitals({ hr: currentCase.hr, spo2: currentCase.spo2 });
+                }
 
                 timerIntervalRef.current = setInterval(() => {
-                    // Si está en el modal de pleurocentesis y es Guiado, el tiempo se detiene
-                    if (procModal === 'pleurocentesis' && guidedMode) return;
+                    const currentProcModal = stateRef.current.procModal;
+                    if (currentProcModal === 'pleurocentesis' && guidedMode) return;
                     
-                    // En modo ECOE con pleurocentesis abierto, el tiempo va a mitad de velocidad
-                    if (procModal === 'pleurocentesis' && !guidedMode) {
+                    if (currentProcModal === 'pleurocentesis' && !guidedMode) {
                         stateRef.current.timerValue += 0.5;
                     } else {
                         stateRef.current.timerValue += 1;
@@ -483,7 +489,6 @@
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
 
-                    // Evaluando esfuerzo respiratorio
                     if (hr >= 100 && nt > 30) {
                         if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
                             stateRef.current.spontaneousBreathing = false;
@@ -499,21 +504,17 @@
                         if (!thermalActions.includes('bolsa_poli')) hrChange -= 0.5;
                     }
 
-                    // --- CÁLCULO DE DAÑO PULMONAR (Neumotórax) ---
                     const totalDamage = (pneumo.right === 1 ? 1 : 0) + (pneumo.left === 1 ? 1 : 0);
                     
-                    // Si el sistema manual está retenido pero sin trampa (2), el aire vuelve a entrar si hay VPP
                     if (isVenting) {
                         if (pneumo.right === 2 && Math.random() > 0.5) stateRef.current.pneumo.right = 1;
                         if (pneumo.left === 2 && Math.random() > 0.5) stateRef.current.pneumo.left = 1;
                     }
 
                     if (totalDamage > 0) {
-                        // Castigo brutal por Neumotórax a Tensión
                         hrChange -= (totalDamage * 2.0);
                         spo2Change -= (totalDamage * 3.0); 
                     } else {
-                        // Flujo normal de ventilación
                         if (hyperventilation) hrChange -= 0.8; 
 
                         if (isVenting) {
@@ -563,13 +564,13 @@
                     if (newHr === 0) setGameState('fail');
                     if (stateRef.current.stableTimer >= 5 && nt > 60 && totalDamage === 0) setGameState('success');
 
-                    setUiToggle(p => p + 1); // Fuerza refresh visual de las barras de pulmón
+                    setUiToggle(p => p + 1); 
                 }, 1000);
             } else {
                 clearInterval(timerIntervalRef.current);
             }
             return () => clearInterval(timerIntervalRef.current);
-        }, [gameState, currentCase, guidedMode, procModal]);
+        }, [gameState, currentCase, guidedMode]); // Removido procModal de las dependencias
 
         const formatTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
 
@@ -614,15 +615,14 @@
 
             const damageThreshold = currentCase.eg < 32 ? 28 : 38;
             
-            // --- DETECCIÓN DE BAROTRAUMA ---
             if (generatedPip > damageThreshold || (mode === 'neopuff' && pressDuration > 1500)) {
                 
                 const pneumo = stateRef.current.pneumo;
                 if (pneumo.right === 0) {
-                    stateRef.current.pneumo.right = 1; // Falla Derecho
+                    stateRef.current.pneumo.right = 1; 
                     addLog(`ALERTA CRÍTICA: Barotrauma. Neumotórax Derecho a Tensión.`, "error");
                 } else if (pneumo.right !== 0 && pneumo.left === 0) {
-                    stateRef.current.pneumo.left = 1; // Falla Izquierdo
+                    stateRef.current.pneumo.left = 1; 
                     addLog(`ALERTA CRÍTICA: Barotrauma. Neumotórax Bilateral.`, "error");
                 }
             }
@@ -652,7 +652,7 @@
                 if (!stateRef.current.thermalActions.includes(value)) {
                     stateRef.current.thermalActions.push(value);
                     if (value === 'secar' && currentCase.eg < 32)
-                        addLog("ERROR CRÍTICO: Prematuros <32s NO se secan. Riesgo hipotermia.", "error");
+                        addLog("ERROR CRÍTICO: Prematuros <32s NO se secan.", "error");
                     else addLog(`Paso: ${value.replace(/_/g, ' ')} realizado.`, 'correct');
                     setUiToggle(p => p + 1);
                 }
@@ -675,19 +675,21 @@
         const handlePleuroPuncture = (zone) => {
             if (zone === 'van') {
                 addLog("ERROR CRÍTICO: Punción en borde inferior (Paquete VAN). Sangrado activo.", "error");
-                stateRef.current.hr = Math.max(0, stateRef.current.hr - 30); // Cae la FC por shock hemorrágico
+                stateRef.current.hr = Math.max(0, stateRef.current.hr - 30); 
                 setPleuroState(p => ({ ...p, step: 'done' }));
             } else if (zone === 'medial') {
-                addLog("ERROR CRÍTICO: Punción medial. Taponamiento Cardíaco.", "error");
-                stateRef.current.hr = 0; // Paro inmediato
+                addLog("ERROR CRÍTICO: Punción medial. Riesgo de Taponamiento Cardíaco.", "error");
+                stateRef.current.hr = Math.max(0, stateRef.current.hr - 40); 
+                setPleuroState(p => ({ ...p, step: 'done' }));
+            } else if (zone === 'wrong_space') {
+                addLog("ERROR: Sitio de punción incorrecto. No es el 2° EIC.", "warn");
+                stateRef.current.spo2 = Math.max(0, stateRef.current.spo2 - 5);
                 setPleuroState(p => ({ ...p, step: 'done' }));
             } else if (zone === 'perfect') {
                 addLog("Punción correcta en 2° EIC, borde superior 3° costilla.", "correct");
-                // Verificar bránula
                 const br = pleuroState.selectedBranula;
-                if (br === 'branula_18') {
-                    addLog("Peligro: Bránula 18G muy gruesa, causó daño parenquimatoso leve.", "warn");
-                }
+                if (br === 'branula_18') addLog("Peligro: Bránula 18G gruesa, causó daño parenquimatoso leve.", "warn");
+                if (br === 'branula_24') addLog("Aviso: Bránula 24G muy fina, drenaje será muy lento.", "warn");
                 setPleuroState(p => ({ ...p, step: 'evac', pleuraAir: 100 }));
             }
         };
@@ -699,31 +701,47 @@
         const handlePleuroSyringe = (action) => {
             let sAir = pleuroState.syringeAir;
             let pAir = pleuroState.pleuraAir;
-            const cap = parseInt(pleuroState.selectedSyringe.split('_')[1]); // ej: 10
+            const cap = parseInt(pleuroState.selectedSyringe.split('_')[1]); 
             
             if (action === 'pull') {
+                if (sAir >= cap) {
+                    addLog("La jeringa ya está llena. Gira la llave para vaciarla.", "warn");
+                    return;
+                }
                 if (pleuroState.valveTo === 'patient') {
-                    const toExtract = Math.min(pAir, cap);
+                    const isSlow = pleuroState.selectedBranula === 'branula_24';
+                    const availableSpace = cap - sAir;
+                    let toExtract = Math.min(pAir, availableSpace);
+                    if (isSlow) toExtract = Math.ceil(toExtract / 2); // Penalización por aguja fina
+                    
+                    if (toExtract === 0) {
+                        addLog("No hay más aire que sacar en este momento.", "info");
+                        return;
+                    }
                     pAir -= toExtract;
-                    sAir = toExtract;
+                    sAir += toExtract;
                 } else {
-                    sAir = cap; // se llena de la sala
+                    sAir = cap; // Succiona de la sala
                 }
             } else if (action === 'push') {
+                if (sAir === 0) {
+                    addLog("La jeringa ya está vacía.", "info");
+                    return;
+                }
                 if (pleuroState.valveTo === 'patient') {
-                    pAir += sAir; // Empeora neumotórax!
+                    pAir += sAir; 
                     sAir = 0;
-                    addLog("¡Estás inyectando aire a la pleura!", "error");
+                    addLog("¡ERROR! Estás inyectando aire de vuelta a la pleura.", "error");
+                    stateRef.current.lungDamage += 1;
                 } else {
-                    sAir = 0; // Bota el aire a la sala
+                    sAir = 0; // Vacía al ambiente
                 }
             }
 
             setPleuroState(p => ({ ...p, syringeAir: sAir, pleuraAir: pAir }));
 
-            if (pAir <= 0) {
-                // Pulmón vaciado
-                if (pleuroState.side === 'left') stateRef.current.pneumo.left = 2; // Manual retenido
+            if (pAir <= 0 && action === 'pull') {
+                if (pleuroState.side === 'left') stateRef.current.pneumo.left = 2; 
                 if (pleuroState.side === 'right') stateRef.current.pneumo.right = 2;
                 addLog("Aire evacuado. Signos vitales repuntando.", "correct");
             }
@@ -759,11 +777,12 @@
             spo2DisplayRef.current = 0;
             ventPressStartRef.current = 0;
             stateRef.current = {
+                isInitialized: false, // Reset del motor
                 hr: c.hr, spo2: c.spo2, mode: null, pip: 20, flow: 10,
                 isMaskSealed: false, timerValue: 0, stableTimer: 0,
                 sopaSteps: [], thermalActions: [], drugs: [], equips: selectedEquip,
                 lastVentTime: 0, timestamps: {}, lungDamage: 0, hyperventilation: false,
-                spontaneousBreathing: false, pneumo: { left: 0, right: 0 }
+                spontaneousBreathing: false, pneumo: { left: 0, right: 0 }, procModal: null
             };
         };
 
@@ -801,7 +820,7 @@
             } else {
                 rubric.push({ text: "Falta crítica: No se administró Presión Positiva (VPP).", pass: false });
             }
-            if (t['P'] || t['A']) rubric.push({ text: "Corrección: Uso adecuado de MR. SOPA.", pass: true });
+            if (t['P'] || t['A']) rubric.push({ text: "Corrección: Uso adecuado de pasos avanzados MR. SOPA.", pass: true });
             if (isPremature) {
                 rubric.push({ text: t['surfactante'] ? "Manejo SDR: Surfactante administrado." : "Manejo SDR: Se omitió Surfactante esencial.", pass: !!t['surfactante'] });
             }
@@ -832,7 +851,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026  20:43</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026  21:00</p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -840,7 +859,7 @@
                         <button onClick={() => setGuidedMode(true)} className={`flex-1 py-3 text-xs font-black uppercase rounded-xl transition-all ${guidedMode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Guiado</button>
                         <button onClick={() => setGuidedMode(false)} className={`flex-1 py-3 text-xs font-black uppercase rounded-xl transition-all ${!guidedMode ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>ECOE (Examen)</button>
                     </div>
-                    <p className="text-[10px] text-slate-500 italic">{guidedMode ? "El asistente sugiere pasos y el tiempo se detiene en pausas clínicas." : "Auditoría estricta de tiempos."}</p>
+                    <p className="text-[10px] text-slate-500 italic">{guidedMode ? "El asistente sugiere pasos y el tiempo se detiene en pausas." : "Auditoría estricta de tiempos."}</p>
                 </div>
 
                 <button onClick={() => { setSelectedEquip([]); startGame(); }} className="bg-blue-600 hover:bg-blue-500 py-6 px-20 rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Iniciar Guardia</button>
@@ -981,7 +1000,6 @@
                             </div>
                         </div>
                         
-                        {/* Barras Visuales Diagnósticas */}
                         <LungSymmetry isVenting={isVPPActive} isSpontaneous={stateRef.current.spontaneousBreathing} pneumoState={stateRef.current.pneumo} />
                     </div>
 
@@ -1029,7 +1047,7 @@
                         <button onClick={() => setProcModal('mrsopa')} className="bg-amber-600/20 border border-amber-600 text-amber-500 font-black p-4 rounded-3xl text-[9px] uppercase shadow-lg tracking-widest hover:bg-amber-600/30 transition-colors">MR. SOPA</button>
                         <button onClick={() => setProcModal('advanced')} className="bg-slate-900 border border-slate-700 text-white font-black p-4 rounded-3xl text-[9px] uppercase shadow-lg tracking-widest hover:bg-slate-800 transition-colors">Vía Aérea</button>
                         
-                        {/* Botón Pleurocentesis: Solo se habilita si hay agujas, llaves y jeringas en el carro */}
+                        {/* Botón Pleurocentesis */}
                         {(() => {
                             const hasNeedle = selectedEquip.some(e => e.includes('branula'));
                             const hasKey = selectedEquip.some(e => e.includes('llave') || e.includes('alargador'));
@@ -1114,9 +1132,9 @@
                     </div>
 
                     {/* Fármacos */}
-                    <div className="flex gap-4">
-                        <button onClick={() => registerAction('drug','surfactante')} disabled={!selectedEquip.includes('surfactante')} className="flex-1 bg-violet-700 hover:bg-violet-600 py-5 rounded-[2rem] font-black text-[10px] uppercase shadow-xl disabled:opacity-30 tracking-widest transition-all">Surfactante</button>
-                        <button onClick={() => registerAction('drug','adrenalina')} disabled={!selectedEquip.includes('adrenalina')} className="flex-1 bg-rose-700 hover:bg-rose-600 py-5 rounded-[2rem] font-black text-[10px] uppercase shadow-xl disabled:opacity-30 tracking-widest transition-all">Adrenalina</button>
+                    <div className="flex gap-4 w-full">
+                        <button onClick={() => registerAction('drug', 'surfactante')} disabled={!selectedEquip.includes('surfactante')} className="flex-1 bg-violet-700 hover:bg-violet-600 py-5 rounded-[2rem] font-black text-[10px] md:text-xs uppercase shadow-xl disabled:opacity-30 tracking-widest transition-colors">Surfactante</button>
+                        <button onClick={() => registerAction('drug', 'adrenalina')} disabled={!selectedEquip.includes('adrenalina')} className="flex-1 bg-rose-700 hover:bg-rose-600 py-5 rounded-[2rem] font-black text-[10px] md:text-xs uppercase shadow-xl disabled:opacity-30 tracking-widest transition-colors">Adrenalina</button>
                     </div>
                 </div>
 
@@ -1173,21 +1191,20 @@
                                             </div>
 
                                             {pleuroState.selectedBranula && (
-                                                <div className="w-full h-64 bg-rose-50 rounded-2xl relative border-4 border-rose-200 overflow-hidden">
-                                                    <div className="absolute top-2 w-full text-center text-[10px] font-black text-rose-300 uppercase tracking-widest">Clavícula</div>
+                                                <div className="w-full h-80 bg-rose-50 rounded-2xl relative border-4 border-rose-200 overflow-hidden flex flex-col">
+                                                    <div className="w-full h-6 bg-rose-100 flex items-center justify-center text-[10px] font-black text-rose-300 uppercase tracking-widest shrink-0">Clavícula</div>
                                                     
-                                                    <div className="w-full h-8 bg-slate-300/80 absolute top-12 flex items-center justify-center text-[10px] font-bold text-slate-500">Costilla 2</div>
-                                                    
-                                                    <div className="w-full h-16 absolute top-20 flex flex-col group">
-                                                        <button onClick={() => handlePleuroPuncture('van')} className="flex-1 hover:bg-rose-500/50 transition-colors flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] font-black text-white">Borde Inferior C2</button>
-                                                        <button onClick={() => handlePleuroPuncture('perfect')} className="flex-1 hover:bg-emerald-500/50 transition-colors flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] font-black text-white">Borde Superior C3</button>
-                                                    </div>
-
-                                                    <div className="w-full h-8 bg-slate-300/80 absolute top-36 flex items-center justify-center text-[10px] font-bold text-slate-500">Costilla 3</div>
-                                                    
-                                                    {pleuroState.side === 'left' && (
-                                                        <button onClick={() => handlePleuroPuncture('medial')} className="absolute left-0 w-1/4 h-full bg-transparent hover:bg-rose-600/50 transition-colors flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] font-black text-white text-center">Zona Medial (Cardiac)</button>
-                                                    )}
+                                                    {[1, 2, 3, 4, 5].map(rib => (
+                                                        <React.Fragment key={rib}>
+                                                            <div className="w-full h-4 bg-slate-300 flex items-center justify-center text-[8px] font-bold text-slate-500 shadow-sm shrink-0 relative z-10">Costilla {rib}</div>
+                                                            <div className="w-full flex-1 flex flex-col group relative">
+                                                                {pleuroState.side === 'left' && <button onClick={() => handlePleuroPuncture('medial')} className="absolute left-0 w-1/4 h-full bg-transparent hover:bg-rose-600/50 z-20 opacity-0 hover:opacity-100 flex items-center justify-center text-[7px] font-black text-white text-center">Medial</button>}
+                                                                <button onClick={() => handlePleuroPuncture('van')} className="flex-1 hover:bg-rose-500/50 transition-colors opacity-0 hover:opacity-100 flex items-center justify-center text-[8px] font-black text-white z-10">Borde Inf C{rib}</button>
+                                                                <button onClick={() => handlePleuroPuncture(rib === 2 ? 'perfect' : 'wrong_space')} className="flex-1 hover:bg-emerald-500/50 transition-colors opacity-0 hover:opacity-100 flex items-center justify-center text-[8px] font-black text-white z-10">Borde Sup C{rib+1}</button>
+                                                            </div>
+                                                        </React.Fragment>
+                                                    ))}
+                                                    <div className="w-full h-4 bg-slate-300 flex items-center justify-center text-[8px] font-bold text-slate-500 shadow-sm shrink-0">Costilla 6</div>
                                                 </div>
                                             )}
                                         </>
@@ -1227,7 +1244,7 @@
                                             </div>
                                             <div className="bg-slate-950 p-4 rounded-xl text-center min-w-[80px]">
                                                 <span className="block text-[8px] font-bold text-slate-500 uppercase mb-1">En Jeringa</span>
-                                                <span className="text-xl font-black text-white">{pleuroState.syringeAir}cc</span>
+                                                <span className="text-xl font-black text-white">{pleuroState.syringeAir}cc / {pleuroState.selectedSyringe.split('_')[1]}cc</span>
                                             </div>
                                         </div>
                                     )}
@@ -1279,6 +1296,7 @@
                     </div>
                 )}
 
+                {/* ── MODAL VÍA AÉREA ── */}
                 {procModal === 'advanced' && (
                     <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6 text-slate-100">
                         <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 max-w-2xl w-full shadow-2xl">

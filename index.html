@@ -378,7 +378,6 @@
         const [isVPPActive, setIsVPPActive] = useState(false);
         const [ventCount, setVentCount] = useState(0);
 
-        // --- ESTADO PARA PLEUROCENTESIS ---
         const [pleuroState, setPleuroState] = useState({
             side: null, 
             selectedBranula: null,
@@ -530,7 +529,6 @@
 
                     const totalDamage = (pneumo.right === 1 ? 1 : 0) + (pneumo.left === 1 ? 1 : 0);
                     
-                    // Si el sistema manual está retenido pero sin trampa (2), el aire vuelve a entrar con VPP
                     if (isVenting) {
                         if (pneumo.right === 2 && Math.random() > 0.5) stateRef.current.pneumo.right = 1;
                         if (pneumo.left === 2 && Math.random() > 0.5) stateRef.current.pneumo.left = 1;
@@ -695,7 +693,6 @@
             }
         };
 
-        // --- LÓGICA DEL MINI-JUEGO PLEUROCENTESIS ---
         const handlePleuroPuncture = (zone) => {
             if (zone === 'van') {
                 addLog("ERROR CRÍTICO: Punción en borde inferior (Paquete VAN). Sangrado activo.", "error");
@@ -879,7 +876,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 21:12</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026  21:24</p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -1009,30 +1006,35 @@
                 {/* ── PANEL IZQUIERDO ── */}
                 <div className="flex-1 flex flex-col gap-6">
 
-                    {/* Monitor de signos vitales */}
+                    {/* Monitor de signos vitales (Ondas Realistas Canvas + Indicadores Centrales) */}
                     <div className={`bg-black border-4 rounded-[2.5rem] p-6 shadow-2xl transition-colors relative ${timer >= 60 && vitals.hr < 100 ? 'pulse-red' : 'border-slate-800'}`}>
-                        <div className="flex justify-between items-center mb-4 pr-20">
+                        <div className="flex justify-between items-center mb-4">
                             <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Monitor ECOE v3.0</span>
                             <span className="text-amber-500 font-bold monitor-font text-xl">{formatTime(timer)}</span>
                         </div>
-                        <div className="grid grid-cols-2 gap-8 pr-20">
-                            <div>
+                        
+                        <div className="flex justify-between items-start w-full">
+                            <div className="flex-1">
                                 <span className="text-[10px] font-bold text-emerald-500 uppercase">FC (BPM)</span>
                                 <div className={`text-6xl font-black monitor-font ${timer >= 60 && vitals.hr < 100 ? 'text-rose-500' : 'text-emerald-400'}`}>{vitals.hr === 0 ? '--' : vitals.hr}</div>
                                 <WaveMonitor type="ecg" hrRef={hrDisplayRef} spo2Ref={spo2DisplayRef} color="#10b981" />
                             </div>
-                            <div className="text-right">
+
+                            {/* ELEMENTOS TORÁCICOS AL CENTRO */}
+                            <div className="flex flex-col items-center justify-start gap-2 z-10 px-4 mt-2">
+                                <LungSymmetry isVenting={isVPPActive} isSpontaneous={stateRef.current.spontaneousBreathing} pneumoState={stateRef.current.pneumo} />
+                                {(stateRef.current.pneumo.left === 3 || stateRef.current.pneumo.right === 3) && (
+                                    <div className="flex gap-2 justify-center">
+                                        {stateRef.current.pneumo.left === 3 && <WaterTrap isVenting={isVPPActive} side="left" />}
+                                        {stateRef.current.pneumo.right === 3 && <WaterTrap isVenting={isVPPActive} side="right" />}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex-1 text-right">
                                 <span className="text-[10px] font-bold text-sky-500 uppercase">SpO2 (%)</span>
                                 <div className="text-6xl font-black monitor-font text-sky-400">{vitals.spo2 === 0 ? '--' : vitals.spo2}</div>
                                 <WaveMonitor type="pleth" hrRef={hrDisplayRef} spo2Ref={spo2DisplayRef} color="#38bdf8" />
-                            </div>
-                        </div>
-                        
-                        <div className="absolute top-4 right-4 flex flex-col gap-2">
-                            <LungSymmetry isVenting={isVPPActive} isSpontaneous={stateRef.current.spontaneousBreathing} pneumoState={stateRef.current.pneumo} />
-                            <div className="flex gap-2 justify-end">
-                                {stateRef.current.pneumo.left === 3 && <WaterTrap isVenting={isVPPActive} side="left" />}
-                                {stateRef.current.pneumo.right === 3 && <WaterTrap isVenting={isVPPActive} side="right" />}
                             </div>
                         </div>
                     </div>

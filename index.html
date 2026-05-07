@@ -195,11 +195,10 @@
     // COMPONENTES: BARRAS DE SIMETRÍA Y TRAMPA DE AGUA
     // =============================================================
     const LungSymmetry = ({ isVenting, pneumoState, isSpontaneous }) => {
-        // Logica de animación autónoma acoplada al CSS
         const getLungClass = (sideState) => {
-            if (sideState === 1) return ''; // Colapsado, no se mueve
-            if (isVenting && sideState !== 1) return ''; // Si estás ventilando, manda tu mano
-            if (isSpontaneous && (sideState === 0 || sideState === 3)) return 'lung-breathe'; // Autorespiración
+            if (sideState === 1) return ''; 
+            if (isVenting && sideState !== 1) return ''; 
+            if (isSpontaneous && (sideState === 0 || sideState === 3)) return 'lung-breathe'; 
             return '';
         }
 
@@ -208,8 +207,8 @@
             if (sideState === 2) return { height: isVenting ? '50%' : '20%' };
             if (sideState === 3 && isVenting) return { height: '90%' };
             if (sideState === 0 && isVenting) return { height: '95%' };
-            if (isSpontaneous && (sideState === 0 || sideState === 3)) return {}; // El CSS lo maneja
-            return { height: '30%' }; // Apnea normal
+            if (isSpontaneous && (sideState === 0 || sideState === 3)) return {}; 
+            return { height: '30%' }; 
         }
         
         return (
@@ -267,13 +266,15 @@
                 } else if (mode === 'ambu') {
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
-                        target = Math.min(60, 10 + (dur / 15)); 
+                        // Fórmula ajustada: crecimiento de presión más lento y controlado
+                        target = Math.min(60, (dur / 20)); 
                     } else {
                         target = 0; 
                     }
                 }
 
-                const smoothFactor = mode === 'neopuff' ? 0.8 : 0.8;
+                // El ambu no tiene lag visual para que el número sea hiperpreciso
+                const smoothFactor = mode === 'neopuff' ? 0.8 : 1.0;
                 currPressRef.current += (target - currPressRef.current) * smoothFactor;
 
                 if (needleRef.current) {
@@ -291,7 +292,6 @@
                     }
                 }
 
-                // Actualizar número digital para el Ambú sin causar re-renders de React
                 if (digitalPressRef.current && mode === 'ambu' && guidedMode) {
                     digitalPressRef.current.innerText = Math.round(currPressRef.current);
                 }
@@ -342,8 +342,7 @@
                         <div className="absolute top-0 left-0 w-full h-full rounded-full" style={dangerArcStyle}></div>
                         <div className="absolute top-1.5 left-1.5 w-[calc(100%-12px)] h-[calc(100%-12px)] bg-slate-950 rounded-full"></div>
 
-                        {/* Manómetro Digital Integrado en el Centro */}
-                        <div ref={digitalPressRef} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-1 text-2xl font-black text-white z-20">0</div>
+                        <div ref={digitalPressRef} className="absolute top-[65%] left-1/2 -translate-x-1/2 text-2xl font-black text-white z-20 leading-none">0</div>
 
                         <div ref={needleRef} className="absolute w-1 h-12 bg-white/50 origin-bottom transition-transform duration-75" style={{ bottom: '50%' }}></div>
                         <div className="w-2 h-2 bg-rose-500 rounded-full z-30"></div>
@@ -454,12 +453,10 @@
             }
         }, [gameState, preArrivalTimer]);
 
-        // --- ASISTENTE GUIADO INTELIGENTE (Lee Tendencias) ---
         useEffect(() => {
             if (!guidedMode || gameState !== 'resus') return;
             const { hr, hrHistory, thermalActions, sopaSteps, drugs, mode: m, pneumo, spontaneousBreathing } = stateRef.current;
             
-            // Calculador de Tendencia (Delta FC en los últimos segundos)
             const hrTrend = hrHistory.length > 0 ? (hr - hrHistory[0]) : 0;
 
             if (pneumo.right === 1 || pneumo.left === 1) {
@@ -481,7 +478,6 @@
                 if (m === 'apagado' || m === 'freeflow' || m === null) {
                     setAssistantHint("PASO 2: FC < 100 lpm. SELECCIONA SOPORTE (NeoPuff o Ambu) y sella la mascarilla.");
                 } else if (hrTrend > 5) {
-                    // Magia Inteligente: Detecta mejoría y te alienta
                     setAssistantHint("¡Excelente técnica! Frecuencia cardíaca en rápido aumento. Mantén el ritmo.");
                 } else if (sopaSteps.length === 0 && ventCount > 10 && hrTrend <= 0) {
                     setAssistantHint("PASO 3: VPP inefectiva (FC estancada). Aplica MR. SOPA para corregir sello y vía aérea.");
@@ -609,7 +605,6 @@
                     const newHr = Math.max(0, Math.min(160, hr + hrChange));
                     const newSpo2 = Math.max(0, Math.min(98, spo2 + spo2Change));
 
-                    // Actualizar Historial de Tendencias
                     stateRef.current.hrHistory.push(newHr);
                     if (stateRef.current.hrHistory.length > 5) stateRef.current.hrHistory.shift();
 
@@ -670,8 +665,8 @@
 
             let generatedPip = pip; 
             if (mode === 'ambu') {
-                // Ambú ignora configuración PIP, calcula por milisegundos reales
-                generatedPip = Math.min(60, 10 + (pressDuration / 15)); 
+                // Cálculo de presión corregido: sube progresivamente pero da un margen seguro (dur/20)
+                generatedPip = Math.min(60, (pressDuration / 20)); 
             }
 
             const damageThreshold = currentCase.eg < 32 ? 28 : 38;
@@ -732,7 +727,6 @@
         };
 
         const openPleuroModal = () => {
-            // Reset state for clean procedure every time
             setPleuroState({
                 side: null, 
                 selectedBranula: null,
@@ -849,7 +843,7 @@
             setAskedBriefing([]); setAskedBirth([]);
             setVentCount(0); setAssistantHint("");
             setPreArrivalTimer(25); setIsMaskSealed(false);
-            setSetupStatus({ heat: false, blender: 21, suction: false }); // Reset Setup Status
+            setSetupStatus({ heat: false, blender: 21, suction: false }); 
             setMode(null); setPip(20); setFio2(21); setFlow(10);
             hrDisplayRef.current = 0;
             spo2DisplayRef.current = 0;
@@ -929,7 +923,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 14:57</p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>

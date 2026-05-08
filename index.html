@@ -251,6 +251,7 @@
 
     // =============================================================
     // MANÓMETRO INTELIGENTE
+    // Corregida la zona roja usando absolute insets puros para evitar recortes
     // =============================================================
     const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef, isPremature }) => {
         const needleRef = useRef(null);
@@ -266,14 +267,13 @@
                 } else if (mode === 'ambu') {
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
-                        // Fórmula ajustada: crecimiento de presión más lento y controlado
-                        target = Math.min(60, (dur / 20)); 
+                        // Curva suavizada: dur / 30 otorga ~25 cmH2O en 750ms. Más control humano.
+                        target = Math.min(60, (dur / 30)); 
                     } else {
                         target = 0; 
                     }
                 }
 
-                // El ambu no tiene lag visual para que el número sea hiperpreciso
                 const smoothFactor = mode === 'neopuff' ? 0.8 : 1.0;
                 currPressRef.current += (target - currPressRef.current) * smoothFactor;
 
@@ -338,11 +338,15 @@
 
             return (
                 <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative">
-                    <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-full rounded-full" style={dangerArcStyle}></div>
-                        <div className="absolute top-1.5 left-1.5 w-[calc(100%-12px)] h-[calc(100%-12px)] bg-slate-950 rounded-full"></div>
+                    <div className="w-28 h-28 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative">
+                        {/* Arco de Peligro Matemático sin bugs visuales */}
+                        <div className="absolute inset-0 rounded-full overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-full" style={dangerArcStyle}></div>
+                            <div className="absolute inset-1.5 bg-slate-950 rounded-full z-0"></div>
+                        </div>
 
-                        <div ref={digitalPressRef} className="absolute top-[65%] left-1/2 -translate-x-1/2 text-2xl font-black text-white z-20 leading-none">0</div>
+                        {/* Display numérico desplazado hacia abajo para no chocar con la aguja */}
+                        <div ref={digitalPressRef} className="absolute top-[68%] left-1/2 -translate-x-1/2 text-xl font-black text-white z-20 leading-none">0</div>
 
                         <div ref={needleRef} className="absolute w-1 h-12 bg-white/50 origin-bottom transition-transform duration-75" style={{ bottom: '50%' }}></div>
                         <div className="w-2 h-2 bg-rose-500 rounded-full z-30"></div>
@@ -351,6 +355,7 @@
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-rose-500">60</div>
                         <div className="absolute left-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-slate-400">0</div>
                     </div>
+                    {/* Etiqueta por fuera del reloj */}
                     <span className="text-[7px] font-black text-slate-500 mt-2 uppercase tracking-widest text-center">Presión (Ambú)</span>
                 </div>
             );
@@ -418,6 +423,7 @@
             isInitialized: false,
             hr: 0, spo2: 0, hrHistory: [],
             mode: null, pip: 20, flow: 10,
+            lastDeliveredPip: 0, // Fundamental para independizar Ambú
             isMaskSealed: false,
             timerValue: 0, stableTimer: 0,
             sopaSteps: [], thermalActions: [], drugs: [], equips: [],
@@ -508,6 +514,7 @@
                     stateRef.current.pneumo = { left: 0, right: 0 };
                     stateRef.current.hyperventilation = false;
                     stateRef.current.spontaneousBreathing = false;
+                    stateRef.current.lastDeliveredPip = 0;
                     
                     hrDisplayRef.current = currentCase.hr;
                     spo2DisplayRef.current = currentCase.spo2;
@@ -532,7 +539,7 @@
 
                     const now = Date.now();
                     const { hr, spo2, mode: m, pip: p, flow: f, isMaskSealed: sealed,
-                            sopaSteps, thermalActions, drugs, equips, lastVentTime, pneumo, hyperventilation } = stateRef.current;
+                            sopaSteps, thermalActions, drugs, equips, lastVentTime, pneumo, hyperventilation, lastDeliveredPip } = stateRef.current;
 
                     const isVenting = (now - lastVentTime) < 2500 && (m === 'neopuff' || m === 'ambu') && sealed;
 
@@ -571,9 +578,12 @@
                             if (f < 8 && m === 'neopuff') {
                                 hrChange -= 1.0;
                             } else {
+                                // INDEPENDIZAMOS LA FÍSICA: Si es Ambú, la eficacia la dicta lastDeliveredPip, NO el slider (p).
+                                const effectivePip = m === 'ambu' ? lastDeliveredPip : p;
                                 const effective = currentCase.eg < 32
-                                    ? (p >= 25 || sopaSteps.includes('P') || sopaSteps.includes('A'))
+                                    ? (effectivePip >= 25 || sopaSteps.includes('P') || sopaSteps.includes('A'))
                                     : true;
+
                                 if (effective && !hyperventilation) {
                                     hrChange = 2.0; spo2Change = 1.0;
                                     if (currentCase.eg < 32 && drugs.includes('surfactante')) hrChange += 1.5;
@@ -663,9 +673,12 @@
 
             let generatedPip = pip; 
             if (mode === 'ambu') {
-                // Cálculo de presión corregido: sube progresivamente pero da un margen seguro (dur/20)
-                generatedPip = Math.min(60, (pressDuration / 20)); 
+                // Cálculo suavizado y realista de la presión generada con el clic
+                generatedPip = Math.min(60, (pressDuration / 30)); 
             }
+            
+            // Guardamos la presión real para el motor fisiológico
+            stateRef.current.lastDeliveredPip = generatedPip;
 
             const damageThreshold = currentCase.eg < 32 ? 28 : 38;
             
@@ -849,6 +862,7 @@
             stateRef.current = {
                 isInitialized: false, 
                 hr: c.hr, spo2: c.spo2, hrHistory: [], mode: null, pip: 20, flow: 10,
+                lastDeliveredPip: 0,
                 isMaskSealed: false, timerValue: 0, stableTimer: 0,
                 sopaSteps: [], thermalActions: [], drugs: [], equips: selectedEquip,
                 lastVentTime: 0, timestamps: {}, lungDamage: 0, hyperventilation: false,
@@ -912,6 +926,11 @@
             );
         };
 
+        const getCurrentTimeString = () => {
+            const now = new Date();
+            return `v.${now.toLocaleDateString('es-CL')} - ${now.toLocaleTimeString('es-CL', {hour: '2-digit', minute:'2-digit'})}`;
+        };
+
         // =====================================================================
         // VISTAS
         // =====================================================================
@@ -921,7 +940,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 08/05/26 - 18:36</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">{getCurrentTimeString()}</span></p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -1100,11 +1119,18 @@
                             </div>
                         </div>
                         <div className="space-y-5">
-                            {mode !== 'ambu' && (
+                            {mode === 'neopuff' && (
                                 <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>PIP</span><span className="text-blue-400 font-black">{pip} cmH2O</span></div><input type="range" min="15" max="40" value={pip} onChange={e => setPip(parseInt(e.target.value))}/></div>
                             )}
-                            <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>FiO2</span><span className="text-sky-400 font-black">{fio2}%</span></div><input type="range" min="21" max="100" value={fio2} onChange={e => setFio2(parseInt(e.target.value))}/></div>
-                            <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>Flujo</span><span className={flow < 10 && mode === 'neopuff' ? 'text-rose-500 font-black' : 'text-emerald-500 font-black'}>{flow} L/min</span></div><input type="range" min="0" max="15" value={flow} onChange={e => setFlow(parseInt(e.target.value))}/></div>
+                            {(mode === 'neopuff' || mode === 'ambu' || mode === 'freeflow') && (
+                                <>
+                                    <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>FiO2</span><span className="text-sky-400 font-black">{fio2}%</span></div><input type="range" min="21" max="100" value={fio2} onChange={e => setFio2(parseInt(e.target.value))}/></div>
+                                    <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>Flujo</span><span className={flow < 10 && mode === 'neopuff' ? 'text-rose-500 font-black' : 'text-emerald-500 font-black'}>{flow} L/min</span></div><input type="range" min="0" max="15" value={flow} onChange={e => setFlow(parseInt(e.target.value))}/></div>
+                                </>
+                            )}
+                            {(mode === null || mode === 'apagado') && (
+                                <div className="text-[10px] text-slate-500 italic text-center py-4">Soporte apagado. Controles deshabilitados.</div>
+                            )}
                         </div>
                     </div>
 

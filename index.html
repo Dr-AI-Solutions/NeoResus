@@ -45,6 +45,14 @@
 <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // --- HERRAMIENTA DE VERSIÓN (TOC-Friendly) ---
+    const getCurrentTimeString = () => {
+        const now = new Date();
+        const date = now.toLocaleDateString('es-CL');
+        const time = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        return `v.${date} - ${time}`;
+    };
+
     // --- ÍCONOS ---
     const CheckCircle2 = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
     const XCircle = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>;
@@ -83,6 +91,7 @@
         ]}
     ];
 
+    // EL CEREBRO DE LOS CASOS CLÍNICOS
     const CASES = [
         { id: 1, title: "Prematuro 27s — SDR Severo", vignette: "27 semanas. Sin corticoides antenatales. Líquido claro. Expulsivo inminente.", eg: 27, liq: "Claro", hr: 70, spo2: 45, tone: "Flácido", cry: "Apnea" },
         { id: 2, title: "SAM Severo — Post término", vignette: "41 semanas. Monitor fetal con bradicardia mantenida. Líquido meconial espeso.", eg: 41, liq: "Meconial", hr: 55, spo2: 35, tone: "Pobre", cry: "Jadeo" }
@@ -251,7 +260,6 @@
 
     // =============================================================
     // MANÓMETRO INTELIGENTE
-    // Corregida la zona roja y animación de caída del Ambú
     // =============================================================
     const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef, isPremature }) => {
         const needleRef = useRef(null);
@@ -455,7 +463,7 @@
         }, [gameState, preArrivalTimer]);
 
         useEffect(() => {
-            if (!guidedMode || gameState !== 'resus') return;
+            if (!guidedMode || gameState !== 'resus' || !currentCase) return;
             const { hr, hrHistory, thermalActions, sopaSteps, drugs, mode: m, pneumo, spontaneousBreathing } = stateRef.current;
             
             const hrTrend = hrHistory.length > 0 ? (hr - hrHistory[0]) : 0;
@@ -466,7 +474,7 @@
             }
 
             if (timer < 30) {
-                if (currentCase.eg < 32 && !thermalActions.includes('bolsa_poli')) {
+                if (currentCase?.eg < 32 && !thermalActions.includes('bolsa_poli')) {
                     setAssistantHint("PASO 1: Prematuro extremo. Usa BOLSA POLI y GORRO. NO lo seques.");
                 } else if (!thermalActions.includes('posicionar')) {
                     setAssistantHint("PASO 1: Realiza pasos iniciales: Posición de olfateo y estimulación.");
@@ -488,7 +496,7 @@
                     setAssistantHint("PASO 2: Inicia VPP rítmica (40-60/min). Sella la mascarilla y ventila.");
                 }
             } else if (hr >= 100) {
-                if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
+                if (currentCase?.eg < 32 && !drugs.includes('surfactante')) {
                     setAssistantHint("PASO 5: FC estable, pero pulmón inmaduro no cede. Administra Surfactante antes de suspender VPP.");
                 } else if (m !== 'apagado') {
                     setAssistantHint("Signos vitales mejorando. Cambia a modo 'Apagado' para confirmar respiración espontánea.");
@@ -500,7 +508,7 @@
 
         // --- MOTOR DE SIMULACIÓN ---
         useEffect(() => {
-            if (gameState === 'resus') {
+            if (gameState === 'resus' && currentCase) {
                 if (!stateRef.current.isInitialized) {
                     stateRef.current.isInitialized = true;
                     stateRef.current.hr = currentCase.hr;
@@ -545,7 +553,7 @@
                     let spo2Change = -0.5;
 
                     if (hr >= 100 && nt > 30) {
-                        if (currentCase.eg < 32 && !drugs.includes('surfactante')) {
+                        if (currentCase?.eg < 32 && !drugs.includes('surfactante')) {
                             stateRef.current.spontaneousBreathing = false;
                         } else {
                             stateRef.current.spontaneousBreathing = true;
@@ -554,7 +562,7 @@
                         stateRef.current.spontaneousBreathing = false;
                     }
 
-                    if (currentCase.eg < 32) {
+                    if (currentCase?.eg < 32) {
                         if (thermalActions.includes('secar')) hrChange -= 1.0;
                         if (!thermalActions.includes('bolsa_poli')) hrChange -= 0.5;
                     }
@@ -577,13 +585,13 @@
                                 hrChange -= 1.0;
                             } else {
                                 const effectivePip = m === 'ambu' ? lastDeliveredPip : p;
-                                const effective = currentCase.eg < 32
+                                const effective = currentCase?.eg < 32
                                     ? (effectivePip >= 25 || sopaSteps.includes('P') || sopaSteps.includes('A'))
                                     : true;
 
                                 if (effective && !hyperventilation) {
                                     hrChange = 2.0; spo2Change = 1.0;
-                                    if (currentCase.eg < 32 && drugs.includes('surfactante')) hrChange += 1.5;
+                                    if (currentCase?.eg < 32 && drugs.includes('surfactante')) hrChange += 1.5;
                                     if (drugs.includes('adrenalina') && equips.includes('umbilical')) hrChange += 3.0;
                                 } else if (!effective) {
                                     hrChange = 0; spo2Change = 0;
@@ -684,9 +692,8 @@
             
             stateRef.current.lastDeliveredPip = generatedPip;
 
-            // Barotrauma solo ocurre si la mascarilla ESTÁ sellada
             if (stateRef.current.isMaskSealed) {
-                const damageThreshold = currentCase.eg < 32 ? 28 : 38;
+                const damageThreshold = currentCase?.eg < 32 ? 28 : 38;
                 
                 if (generatedPip > damageThreshold || (mode === 'neopuff' && pressDuration > 1500)) {
                     const pneumo = stateRef.current.pneumo;
@@ -724,7 +731,7 @@
             if (type === 'thermal') {
                 if (!stateRef.current.thermalActions.includes(value)) {
                     stateRef.current.thermalActions.push(value);
-                    if (value === 'secar' && currentCase.eg < 32)
+                    if (value === 'secar' && currentCase?.eg < 32)
                         addLog("ERROR CRÍTICO: Prematuros <32s NO se secan. Riesgo hipotermia.", "error");
                     else addLog(`Paso: ${value.replace(/_/g, ' ')} realizado.`, 'correct');
                     setUiToggle(p => p + 1);
@@ -880,7 +887,7 @@
             const t = stateRef.current.timestamps;
             const actions = stateRef.current.thermalActions;
             const pneu = stateRef.current.pneumo;
-            const isPremature = currentCase.eg < 32;
+            const isPremature = currentCase?.eg < 32;
             const rubric = [];
 
             if (pneu.left >= 1 || pneu.right >= 1) {
@@ -932,13 +939,13 @@
             );
         };
 
-        return (
+        if (gameState === 'menu') return (
             <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
                 <div className="bg-blue-600 p-8 rounded-[3rem] shadow-2xl mb-8">
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">v.08/05/2026 - 19:15</span></p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">{getCurrentTimeString()}</span></p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -957,8 +964,8 @@
             <div className="min-h-screen flex items-center justify-center p-6 bg-slate-950">
                 <div className="bg-slate-900 p-12 rounded-[4rem] border border-slate-800 max-w-xl w-full shadow-2xl">
                     <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-6 block underline underline-offset-4">Recepción Urgente</span>
-                    <h2 className="text-3xl font-black mb-6 leading-tight text-white">{currentCase.title}</h2>
-                    <p className="text-slate-300 text-lg leading-relaxed mb-12 italic border-l-4 border-blue-600 pl-6">"{currentCase.vignette}"</p>
+                    <h2 className="text-3xl font-black mb-6 leading-tight text-white">{currentCase?.title}</h2>
+                    <p className="text-slate-300 text-lg leading-relaxed mb-12 italic border-l-4 border-blue-600 pl-6">"{currentCase?.vignette}"</p>
                     <button onClick={() => setGameState('briefing')} className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-lg">Asistir al Parto</button>
                 </div>
             </div>
@@ -969,8 +976,8 @@
                 <h2 className="text-2xl font-black text-center mb-10 uppercase tracking-widest text-blue-400">1. Briefing Obstétrico</h2>
                 <div className="grid gap-3">
                     {[
-                        { id:'eg', q:'¿Cuál es la edad gestacional?', a: currentCase.eg + ' semanas' },
-                        { id:'liq', q:'¿Cómo está el líquido amniótico?', a: currentCase.liq },
+                        { id:'eg', q:'¿Cuál es la edad gestacional?', a: currentCase?.eg + ' semanas' },
+                        { id:'liq', q:'¿Cómo está el líquido amniótico?', a: currentCase?.liq },
                         { id:'riesgo', q:'¿Algún factor de riesgo adicional?', a: 'Alta probabilidad de depresión neonatal.' },
                         { id:'cord', q:'¿Plan para el cordón?', a: 'Clampeo según vigor al nacer.' }
                     ].map(it => (
@@ -1047,9 +1054,9 @@
                 <h2 className="text-3xl font-black mb-12 uppercase tracking-widest text-amber-500 text-center">3. Evaluación al Nacer</h2>
                 <div className="grid gap-4 w-full max-w-md">
                     {[
-                        { id:'t', q:"¿Es de Término?", a: currentCase.eg >= 37 ? "Sí" : `No (${currentCase.eg} sem)` },
-                        { id:'to', q:"¿Tiene Tono?", a: currentCase.tone },
-                        { id:'r', q:"¿Respira o Llora?", a: currentCase.cry }
+                        { id:'t', q:"¿Es de Término?", a: currentCase?.eg >= 37 ? "Sí" : `No (${currentCase?.eg} sem)` },
+                        { id:'to', q:"¿Tiene Tono?", a: currentCase?.tone },
+                        { id:'r', q:"¿Respira o Llora?", a: currentCase?.cry }
                     ].map(it => (
                         <button key={it.id} onClick={() => !askedBirth.includes(it.id) && setAskedBirth(p => [...p, it.id])} className={`p-10 rounded-[3rem] border-2 transition-all relative overflow-hidden ${askedBirth.includes(it.id) ? 'border-amber-600 bg-amber-600/10 scale-105' : 'border-slate-800 bg-slate-900'}`}>
                             <p className="text-[10px] font-black text-amber-500 uppercase mb-2">{it.q}</p>
@@ -1391,7 +1398,7 @@
 
                 {/* ── MODAL MR. SOPA ── */}
                 {procModal === 'mrsopa' && (
-                    <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-6 text-slate-900">
+                    <div className="fixed inset0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-6 text-slate-900">
                         <div className="bg-white rounded-[3rem] p-10 max-w-xl w-full shadow-2xl">
                             <h3 className="text-2xl font-black mb-8 uppercase text-center tracking-widest">Correctivos: MR. SOPA</h3>
                             <div className="space-y-3">

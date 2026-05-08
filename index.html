@@ -45,14 +45,6 @@
 <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // --- HERRAMIENTA DE VERSIÓN (TOC-Friendly) ---
-    const getCurrentTimeString = () => {
-        const now = new Date();
-        const date = now.toLocaleDateString('es-CL');
-        const time = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-        return `v.${date} - ${time}`;
-    };
-
     // --- ÍCONOS ---
     const CheckCircle2 = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
     const XCircle = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>;
@@ -91,7 +83,6 @@
         ]}
     ];
 
-    // EL CEREBRO DE LOS CASOS CLÍNICOS
     const CASES = [
         { id: 1, title: "Prematuro 27s — SDR Severo", vignette: "27 semanas. Sin corticoides antenatales. Líquido claro. Expulsivo inminente.", eg: 27, liq: "Claro", hr: 70, spo2: 45, tone: "Flácido", cry: "Apnea" },
         { id: 2, title: "SAM Severo — Post término", vignette: "41 semanas. Monitor fetal con bradicardia mantenida. Líquido meconial espeso.", eg: 41, liq: "Meconial", hr: 55, spo2: 35, tone: "Pobre", cry: "Jadeo" }
@@ -261,7 +252,7 @@
     // =============================================================
     // MANÓMETRO INTELIGENTE
     // =============================================================
-    const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, guidedMode, ventPressStartRef, isPremature }) => {
+    const Manometer = ({ mode, isVPPActive, isMaskSealed, pipSetting, peepSetting, guidedMode, ventPressStartRef, isPremature }) => {
         const needleRef = useRef(null);
         const digitalPressRef = useRef(null);
         const currPressRef = useRef(0);
@@ -271,17 +262,17 @@
             const draw = () => {
                 let target = 0;
                 if (mode === 'neopuff') {
-                    if (isMaskSealed) target = isVPPActive ? pipSetting : 5;
+                    // PEEP dinámico si está sellado, o PIP si además aprietas. Si no está sellado, no hay presión.
+                    target = isMaskSealed ? (isVPPActive ? pipSetting : peepSetting) : 0;
                 } else if (mode === 'ambu') {
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
-                        target = Math.min(60, (dur / 20)); 
+                        target = Math.min(60, (dur / 30)); 
                     } else {
                         target = 0; 
                     }
                 }
 
-                // Smooth factors distintos: el ambu baja más lento y bonito cuando se suelta
                 let smoothFactor = 1.0;
                 if (mode === 'neopuff') smoothFactor = 0.8;
                 if (mode === 'ambu') smoothFactor = target < currPressRef.current ? 0.15 : 1.0;
@@ -311,7 +302,7 @@
             };
             raf = requestAnimationFrame(draw);
             return () => cancelAnimationFrame(raf);
-        }, [mode, isVPPActive, isMaskSealed, pipSetting, guidedMode]);
+        }, [mode, isVPPActive, isMaskSealed, pipSetting, peepSetting, guidedMode]);
 
         if (mode === null || mode === 'apagado' || mode === 'freeflow') {
             return (
@@ -341,19 +332,23 @@
 
         if (mode === 'ambu' && guidedMode) {
             const dangerLimit = isPremature ? 28 : 38;
-            const dangerAngleStart = (dangerLimit / 60) * 180; 
+            const dangerAngleStart = dangerLimit * 3; // 60 unidades equivalen a 180 grados
 
+            // El truco definitivo del rotate(-90deg) hace que la matemática calce perfecta
             const dangerArcStyle = {
-                background: `conic-gradient(from 270deg, transparent 0deg, transparent ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) 180deg, transparent 180deg)`
+                background: `conic-gradient(from 0deg, transparent 0deg, transparent ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) 180deg, transparent 180deg)`,
+                transform: `rotate(-90deg)`
             };
 
             return (
                 <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shrink-0">
                     <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-full rounded-full" style={dangerArcStyle}></div>
-                        <div className="absolute top-1.5 left-1.5 w-[calc(100%-12px)] h-[calc(100%-12px)] bg-slate-950 rounded-full"></div>
+                        <div className="absolute inset-0 rounded-full overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-full" style={dangerArcStyle}></div>
+                            <div className="absolute inset-1.5 bg-slate-950 rounded-full z-0"></div>
+                        </div>
 
-                        <div ref={digitalPressRef} className="absolute top-[68%] left-1/2 -translate-x-1/2 text-2xl font-black text-white z-20 leading-none">0</div>
+                        <div ref={digitalPressRef} className="absolute top-[70%] left-1/2 -translate-x-1/2 text-xl font-black text-white z-20 leading-none">0</div>
 
                         <div ref={needleRef} className="absolute w-1 h-12 bg-white/50 origin-bottom transition-transform duration-75" style={{ bottom: '50%' }}></div>
                         <div className="w-2 h-2 bg-rose-500 rounded-full z-30"></div>
@@ -406,6 +401,7 @@
 
         const [mode, setMode] = useState(null);
         const [pip, setPip] = useState(20);
+        const [peep, setPeep] = useState(5); // Nuevo estado PEEP
         const [fio2, setFio2] = useState(21);
         const [flow, setFlow] = useState(10);
         const [isMaskSealed, setIsMaskSealed] = useState(false);
@@ -428,11 +424,12 @@
         const stateRef = useRef({
             isInitialized: false,
             hr: 0, spo2: 0, hrHistory: [],
-            mode: null, pip: 20, flow: 10,
+            mode: null, pip: 20, peep: 5, flow: 10,
             lastDeliveredPip: 0,
+            isVPPActive: false, // Ref para control exacto del botón mantenido
             isMaskSealed: false, timerValue: 0, stableTimer: 0,
             sopaSteps: [], thermalActions: [], drugs: [], equips: [],
-            lastVentTime: 0, timestamps: {}, 
+            timestamps: {}, 
             pneumo: { left: 0, right: 0 }, 
             hyperventilation: false, spontaneousBreathing: false,
             procModal: null 
@@ -444,11 +441,12 @@
         useEffect(() => {
             stateRef.current.mode = mode;
             stateRef.current.pip = pip;
+            stateRef.current.peep = peep;
             stateRef.current.flow = flow;
             stateRef.current.equips = selectedEquip;
             stateRef.current.isMaskSealed = isMaskSealed;
             stateRef.current.procModal = procModal; 
-        }, [mode, pip, flow, selectedEquip, isMaskSealed, procModal]);
+        }, [mode, pip, peep, flow, selectedEquip, isMaskSealed, procModal]);
 
         useEffect(() => {
             if (gameState === 'setup') {
@@ -520,6 +518,7 @@
                     stateRef.current.hyperventilation = false;
                     stateRef.current.spontaneousBreathing = false;
                     stateRef.current.lastDeliveredPip = 0;
+                    stateRef.current.isVPPActive = false;
                     
                     hrDisplayRef.current = currentCase.hr;
                     spo2DisplayRef.current = currentCase.spo2;
@@ -542,12 +541,11 @@
                     if (nt === 30 && !guidedMode) addLog("[!] ALERTA 30s: Evaluar FC y respiración.", "alert");
                     if (nt === 60 && !guidedMode) addLog("[!] MINUTO DE ORO: Si FC < 100, iniciar VPP.", "alert");
 
-                    const now = Date.now();
                     const { hr, spo2, mode: m, pip: p, flow: f, isMaskSealed: sealed,
-                            sopaSteps, thermalActions, drugs, equips, lastVentTime, pneumo, hyperventilation, lastDeliveredPip } = stateRef.current;
+                            sopaSteps, thermalActions, drugs, equips, pneumo, hyperventilation, lastDeliveredPip, isVPPActive } = stateRef.current;
 
-                    const isVenting = (now - lastVentTime) < 2500 && (m === 'neopuff' || m === 'ambu') && sealed;
-                    const isNeoPuffFreeFlow = (now - lastVentTime) < 2500 && m === 'neopuff' && !sealed;
+                    const isVenting = isVPPActive && sealed && (m === 'neopuff' || m === 'ambu');
+                    const isNeoPuffFreeFlow = isVPPActive && !sealed && m === 'neopuff';
 
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
@@ -663,31 +661,42 @@
             }
 
             ventPressStartRef.current = Date.now();
+            stateRef.current.isVPPActive = true;
             setIsVPPActive(true);
             markTimestamp('vpp_start');
             
             if (!stateRef.current.isMaskSealed && mode === 'neopuff') {
-                setRhythmMsg("FLUJO LIBRE (Sin Sello)");
+                setRhythmMsg("O2 FLUJO LIBRE");
             }
         };
 
         const handleVentEnd = (e) => {
             if (e) e.preventDefault();
-            if (!stateRef.current.isMaskSealed && mode !== 'neopuff') return;
+            
+            if (!stateRef.current.isMaskSealed) {
+                if (mode === 'neopuff') {
+                    setRhythmMsg("");
+                    stateRef.current.isVPPActive = false;
+                    setIsVPPActive(false);
+                }
+                return;
+            }
+
             if (ventPressStartRef.current === 0 || mode === null) return;
 
             const now = Date.now();
             const pressDuration = now - ventPressStartRef.current;
             ventPressStartRef.current = 0;
+            stateRef.current.isVPPActive = false;
             setIsVPPActive(false);
 
-            const diffSeconds = (now - stateRef.current.lastVentTime) / 1000;
-            stateRef.current.lastVentTime = now;
+            const diffSeconds = (now - stateRef.current.timestamps['lastVentClick']) / 1000;
+            stateRef.current.timestamps['lastVentClick'] = now;
             setVentCount(c => c + 1);
 
             let generatedPip = pip; 
             if (mode === 'ambu') {
-                generatedPip = Math.min(60, (pressDuration / 20)); 
+                generatedPip = Math.min(60, (pressDuration / 30)); 
             }
             
             stateRef.current.lastDeliveredPip = generatedPip;
@@ -705,22 +714,22 @@
                         addLog(`ALERTA CRÍTICA: Barotrauma. Neumotórax Bilateral.`, "error");
                     }
                 }
-            }
 
-            if (diffSeconds > 0.1) {
-                if (diffSeconds < 0.8) { 
-                    setRhythmMsg("¡RÁPIDO!"); 
-                    stateRef.current.hyperventilation = true;
-                    if (!guidedMode && Math.random() > 0.8) addLog("Ritmo muy rápido. Riesgo atrapamiento aéreo.", "warn"); 
-                }
-                else if (diffSeconds > 2.8) { 
-                    setRhythmMsg("LENTO..."); 
-                    stateRef.current.hyperventilation = false;
-                    if (!guidedMode && Math.random() > 0.8) addLog("Ritmo insuficiente.", "late"); 
-                }
-                else { 
-                    if (stateRef.current.isMaskSealed) setRhythmMsg("RITMO CORRECTO ✓"); 
-                    stateRef.current.hyperventilation = false;
+                if (diffSeconds > 0.1 && diffSeconds !== now / 1000) {
+                    if (diffSeconds < 0.8) { 
+                        setRhythmMsg("¡RÁPIDO!"); 
+                        stateRef.current.hyperventilation = true;
+                        if (!guidedMode && Math.random() > 0.8) addLog("Ritmo muy rápido. Riesgo atrapamiento aéreo.", "warn"); 
+                    }
+                    else if (diffSeconds > 2.8) { 
+                        setRhythmMsg("LENTO..."); 
+                        stateRef.current.hyperventilation = false;
+                        if (!guidedMode && Math.random() > 0.8) addLog("Ritmo insuficiente.", "late"); 
+                    }
+                    else { 
+                        setRhythmMsg("RITMO CORRECTO ✓"); 
+                        stateRef.current.hyperventilation = false;
+                    }
                 }
             }
             setTimeout(() => { setRhythmMsg(""); }, 300);
@@ -859,6 +868,7 @@
             setProcModal(null);
         };
 
+
         const startGame = () => {
             const c = CASES[Math.floor(Math.random() * CASES.length)];
             setCurrentCase(c);
@@ -868,14 +878,15 @@
             setVentCount(0); setAssistantHint("");
             setPreArrivalTimer(25); setIsMaskSealed(false);
             setSetupStatus({ heat: false, blender: 21, suction: false }); 
-            setMode(null); setPip(20); setFio2(21); setFlow(10);
+            setMode(null); setPip(20); setPeep(5); setFio2(21); setFlow(10);
             hrDisplayRef.current = 0;
             spo2DisplayRef.current = 0;
             ventPressStartRef.current = 0;
             stateRef.current = {
                 isInitialized: false, 
-                hr: c.hr, spo2: c.spo2, hrHistory: [], mode: null, pip: 20, flow: 10,
+                hr: c.hr, spo2: c.spo2, hrHistory: [], mode: null, pip: 20, peep: 5, flow: 10,
                 lastDeliveredPip: 0,
+                isVPPActive: false,
                 isMaskSealed: false, timerValue: 0, stableTimer: 0,
                 sopaSteps: [], thermalActions: [], drugs: [], equips: selectedEquip,
                 lastVentTime: 0, timestamps: {}, lungDamage: 0, hyperventilation: false,
@@ -1090,11 +1101,11 @@
                             </div>
 
                             <div className="flex flex-col items-center justify-start gap-2 z-10 px-4 mt-2">
-                                <LungSymmetry isVenting={isVPPActive} isSpontaneous={stateRef.current.spontaneousBreathing} pneumoState={stateRef.current.pneumo} />
+                                <LungSymmetry isVenting={isVPPActive && isMaskSealed} isSpontaneous={stateRef.current.spontaneousBreathing} pneumoState={stateRef.current.pneumo} />
                                 {(stateRef.current.pneumo.left === 3 || stateRef.current.pneumo.right === 3) && (
                                     <div className="flex gap-2 justify-center">
-                                        {stateRef.current.pneumo.left === 3 && <WaterTrap isVenting={isVPPActive} side="left" />}
-                                        {stateRef.current.pneumo.right === 3 && <WaterTrap isVenting={isVPPActive} side="right" />}
+                                        {stateRef.current.pneumo.left === 3 && <WaterTrap isVenting={isVPPActive && isMaskSealed} side="left" />}
+                                        {stateRef.current.pneumo.right === 3 && <WaterTrap isVenting={isVPPActive && isMaskSealed} side="right" />}
                                     </div>
                                 )}
                             </div>
@@ -1125,7 +1136,10 @@
                         </div>
                         <div className="space-y-5">
                             {mode === 'neopuff' && (
-                                <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>PIP</span><span className="text-blue-400 font-black">{pip} cmH2O</span></div><input type="range" min="15" max="40" value={pip} onChange={e => setPip(parseInt(e.target.value))}/></div>
+                                <>
+                                    <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>PIP</span><span className="text-blue-400 font-black">{pip} cmH2O</span></div><input type="range" min="15" max="40" value={pip} onChange={e => setPip(parseInt(e.target.value))}/></div>
+                                    <div><div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1 uppercase"><span>PEEP</span><span className="text-emerald-400 font-black">{peep} cmH2O</span></div><input type="range" min="0" max="10" value={peep} onChange={e => setPeep(parseInt(e.target.value))}/></div>
+                                </>
                             )}
                             {(mode === 'neopuff' || mode === 'ambu' || mode === 'freeflow') && (
                                 <>
@@ -1205,21 +1219,10 @@
                         </div>
                     </div>
 
-                    {/* Área de ventilación */}
+                    {/* Área de ventilación - REESTRUCTURADA PARA EVITAR SUPERPOSICIÓN */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-8 bg-slate-950/50 rounded-3xl border border-slate-800/50">
-                        <div className="flex flex-col items-center gap-4">
-                            {/* Botón de sello */}
-                            {(mode === 'neopuff' || mode === 'ambu') && (
-                                <button onClick={() => {
-                                    const newVal = !isMaskSealed;
-                                    stateRef.current.isMaskSealed = newVal;
-                                    setIsMaskSealed(newVal);
-                                    addLog(newVal ? "Mascarilla sellada (PEEP activo)." : "Mascarilla retirada.", newVal ? "correct" : "info");
-                                }} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all relative z-50 select-none cursor-pointer ${isMaskSealed ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
-                                    {isMaskSealed ? 'Mascarilla Sellada ✓' : 'Sellar Mascarilla'}
-                                </button>
-                            )}
-
+                        <div className="flex flex-col items-center gap-6">
+                            
                             <div className="relative">
                                 <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black shadow-xl z-10 whitespace-nowrap pointer-events-none transition-all ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
 
@@ -1238,7 +1241,21 @@
                             </div>
                         </div>
 
-                        <Manometer mode={mode} isVPPActive={isVPPActive} isMaskSealed={isMaskSealed} pipSetting={pip} guidedMode={guidedMode} ventPressStartRef={ventPressStartRef} isPremature={currentCase?.eg < 32} />
+                        <div className="flex flex-col items-center gap-4">
+                            <Manometer mode={mode} isVPPActive={isVPPActive} isMaskSealed={isMaskSealed} pipSetting={pip} peepSetting={peep} guidedMode={guidedMode} ventPressStartRef={ventPressStartRef} isPremature={currentCase?.eg < 32} />
+                            
+                            {/* Botón de sello, movido de forma limpia debajo del Manómetro */}
+                            {(mode === 'neopuff' || mode === 'ambu') && (
+                                <button onClick={() => {
+                                    const newVal = !isMaskSealed;
+                                    stateRef.current.isMaskSealed = newVal;
+                                    setIsMaskSealed(newVal);
+                                    addLog(newVal ? "Mascarilla sellada (PEEP activo)." : "Mascarilla retirada.", newVal ? "correct" : "info");
+                                }} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all select-none cursor-pointer ${isMaskSealed ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
+                                    {isMaskSealed ? 'Mascarilla Sellada ✓' : 'Sellar Mascarilla'}
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* Fármacos */}
@@ -1398,7 +1415,7 @@
 
                 {/* ── MODAL MR. SOPA ── */}
                 {procModal === 'mrsopa' && (
-                    <div className="fixed inset0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-6 text-slate-900">
+                    <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-6 text-slate-900">
                         <div className="bg-white rounded-[3rem] p-10 max-w-xl w-full shadow-2xl">
                             <h3 className="text-2xl font-black mb-8 uppercase text-center tracking-widest">Correctivos: MR. SOPA</h3>
                             <div className="space-y-3">

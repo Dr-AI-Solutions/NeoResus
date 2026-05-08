@@ -350,10 +350,8 @@
                         <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[7px] font-bold text-slate-400">30</div>
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-rose-500">60</div>
                         <div className="absolute left-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-slate-400">0</div>
-                        
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[7px] font-black text-blue-400 z-20">AMBÚ</div>
                     </div>
-                    <span className="text-[7px] font-black text-slate-500 mt-2 uppercase tracking-widest text-center">Guía de Presión</span>
+                    <span className="text-[7px] font-black text-slate-500 mt-2 uppercase tracking-widest text-center">Presión (Ambú)</span>
                 </div>
             );
         }
@@ -923,7 +921,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 14:57</p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 08/05/26 - 18:36</p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -1186,13 +1184,13 @@
                                     stateRef.current.isMaskSealed = newVal;
                                     setIsMaskSealed(newVal);
                                     addLog(newVal ? "Mascarilla sellada (PEEP activo)." : "Mascarilla retirada.", newVal ? "correct" : "info");
-                                }} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${isMaskSealed ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
+                                }} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all relative z-50 select-none cursor-pointer ${isMaskSealed ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
                                     {isMaskSealed ? 'Mascarilla Sellada ✓' : 'Sellar Mascarilla'}
                                 </button>
                             )}
 
                             <div className="relative">
-                                <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black shadow-xl z-10 whitespace-nowrap transition-all ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
+                                <div className={`absolute -top-12 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-2xl text-sm font-black shadow-xl z-10 whitespace-nowrap pointer-events-none transition-all ${rhythmMsg ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>{rhythmMsg}</div>
 
                                 {mode === null ? (
                                     <div className="w-40 h-40 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-500 font-black uppercase text-center p-6 leading-tight">Seleccione<br/>Soporte</div>

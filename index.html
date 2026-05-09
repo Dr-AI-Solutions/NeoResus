@@ -47,7 +47,7 @@
 
     // --- HERRAMIENTA DE VERSIÓN (TOC-Friendly) ---
     const getCurrentTimeString = () => {
-        return `v.08/05/2026 - 21:06`;
+        return `v.08/05/2026 - 21:28`;
     };
 
     // --- ÍCONOS ---
@@ -552,12 +552,12 @@
                     const { hr, spo2, mode: m, pip: p, flow: f, isMaskSealed: sealed,
                             sopaSteps, thermalActions, drugs, equips, pneumo, hyperventilation, lastDeliveredPip, isVPPActive } = stateRef.current;
 
-                    // Lógica corregida para VPP rítmico vs FreeFlow continuo
-                    const timeSinceLastRelease = now - (stateRef.current.timestamps['lastVentClick'] || 0);
+                    // FIX CLAUDE 1: Detectar VPP leyendo el timestamp exacto
+                    const timeSinceLastVent = now - (stateRef.current.timestamps['lastVentClick'] || 0);
                     
-                    const isActivelyVenting = isVPPActive || timeSinceLastRelease < 2500;
+                    const isActivelyVenting = isVPPActive || timeSinceLastVent < 2500;
                     const isVenting = isActivelyVenting && sealed && (m === 'neopuff' || m === 'ambu');
-                    const isNeoPuffFreeFlow = isVPPActive && !sealed && m === 'neopuff';
+                    const isNeoPuffFreeFlow = isActivelyVenting && !sealed && m === 'neopuff';
 
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
@@ -670,16 +670,22 @@
         const handleVentStart = (e) => {
             if (e) e.preventDefault();
             if (mode === 'freeflow' || mode === 'apagado' || mode === null) return;
+            
+            if (!stateRef.current.isMaskSealed && mode !== 'neopuff') { 
+                setRhythmMsg("¡SELLA LA MÁSCARA!"); 
+                return; 
+            }
 
             ventPressStartRef.current = Date.now();
             stateRef.current.isVPPActive = true;
             setIsVPPActive(true);
             markTimestamp('vpp_start');
             
+            // FIX CLAUDE 1: Sincronizar timestamp desde el inicio del clic
+            stateRef.current.timestamps['lastVentClick'] = Date.now();
+            
             if (!stateRef.current.isMaskSealed && mode === 'neopuff') {
                 setRhythmMsg("O2 FLUJO LIBRE");
-            } else if (!stateRef.current.isMaskSealed && mode === 'ambu') {
-                setRhythmMsg("¡SELLA LA MÁSCARA!");
             }
         };
 
@@ -708,7 +714,10 @@
             setIsVPPActive(false);
 
             const diffSeconds = (now - (stateRef.current.timestamps['lastVentClick'] || 0)) / 1000;
+            
+            // FIX CLAUDE 1: Sincronizar timestamp al soltar
             stateRef.current.timestamps['lastVentClick'] = now;
+            
             setVentCount(c => c + 1);
 
             let generatedPip = pip; 
@@ -791,6 +800,12 @@
         };
 
         const handlePleuroPuncture = (zone) => {
+            // FIX CLAUDE 2: Guard para evitar bug silencioso sin bránula seleccionada
+            if (!pleuroState.selectedBranula) {
+                addLog("Atención: Selecciona una bránula antes de puncionar.", "warn");
+                return;
+            }
+
             if (zone === 'van') {
                 addLog("ERROR CRÍTICO: Punción en borde inferior (Paquete VAN). Sangrado activo.", "error");
                 stateRef.current.hr = Math.max(0, stateRef.current.hr - 30); 

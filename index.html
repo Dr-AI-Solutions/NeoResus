@@ -47,7 +47,7 @@
 
     // --- HERRAMIENTA DE VERSIÓN (TOC-Friendly) ---
     const getCurrentTimeString = () => {
-        return `v.08/05/2026 - 20:54`;
+        return `v.08/05/2026 - 21:06`;
     };
 
     // --- ÍCONOS ---
@@ -200,7 +200,6 @@
     // COMPONENTES: BARRAS DE SIMETRÍA Y TRAMPA DE AGUA
     // =============================================================
     const LungSymmetry = ({ isVenting, pneumoState, isSpontaneous }) => {
-        // CORRECCIÓN: Clases CSS ajustadas para que la inflación siga el ritmo de la mano (700ms ease-out) y desinfle natural (300ms ease-in)
         const getLungClass = (sideState) => {
             if (sideState === 1) return 'transition-all duration-300'; 
             if (isVenting && sideState !== 1) return 'transition-all duration-700 ease-out'; 
@@ -272,7 +271,6 @@
                 } else if (mode === 'ambu') {
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
-                        // CORRECCIÓN: Fórmula más lenta para permitir control fino. 1 segundo = ~28 cmH2O
                         target = Math.min(60, (dur / 35)); 
                     } else {
                         target = 0; 
@@ -312,8 +310,8 @@
 
         if (mode === null || mode === 'apagado' || mode === 'freeflow') {
             return (
-                <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shrink-0">
-                    <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative opacity-50 grayscale">
+                <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative opacity-50 grayscale shrink-0">
+                    <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative">
                         <div ref={needleRef} className="absolute w-1 h-12 bg-slate-600 origin-bottom transition-transform duration-75" style={{ bottom: '50%', transform: 'rotate(-90deg)' }}></div>
                         <div className="w-2 h-2 bg-white rounded-full z-10"></div>
                         <div className="absolute top-1 text-[7px] font-bold text-slate-500">20</div>
@@ -337,12 +335,9 @@
         }
 
         if (mode === 'ambu' && guidedMode) {
-            // CORRECCIÓN: Umbrales adaptables reales (30 para prematuros, 40 para término)
             const dangerLimit = isPremature ? 30 : 40; 
-            
-            // CORRECCIÓN MAGISTRAL: Gráfico Vectorial (SVG) en vez de CSS. 
-            // Esto jamás se deformará con Flexbox porque es geometría pura.
-            const dashArray = 125.66; // Circunferencia exacta para r=40 (PI * 40)
+            const dangerAngleStart = dangerLimit * 3; 
+            const dashArray = 125.66; 
             const emptyLength = dashArray * (dangerLimit / 60);
             const redLength = dashArray - emptyLength;
 
@@ -350,7 +345,6 @@
                 <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shrink-0">
                     <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative overflow-hidden">
                         
-                        {/* Arco SVG a prueba de deformaciones */}
                         <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible">
                             <path
                                 d="M 10 50 A 40 40 0 0 1 90 50"
@@ -558,9 +552,12 @@
                     const { hr, spo2, mode: m, pip: p, flow: f, isMaskSealed: sealed,
                             sopaSteps, thermalActions, drugs, equips, pneumo, hyperventilation, lastDeliveredPip, isVPPActive } = stateRef.current;
 
-                    const timeSinceLastVent = now - stateRef.current.timestamps['lastVentClick'];
-                    const isVenting = timeSinceLastVent < 2500 && sealed && (m === 'neopuff' || m === 'ambu');
-                    const isNeoPuffFreeFlow = timeSinceLastVent < 2500 && !sealed && m === 'neopuff';
+                    // Lógica corregida para VPP rítmico vs FreeFlow continuo
+                    const timeSinceLastRelease = now - (stateRef.current.timestamps['lastVentClick'] || 0);
+                    
+                    const isActivelyVenting = isVPPActive || timeSinceLastRelease < 2500;
+                    const isVenting = isActivelyVenting && sealed && (m === 'neopuff' || m === 'ambu');
+                    const isNeoPuffFreeFlow = isVPPActive && !sealed && m === 'neopuff';
 
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
@@ -673,11 +670,6 @@
         const handleVentStart = (e) => {
             if (e) e.preventDefault();
             if (mode === 'freeflow' || mode === 'apagado' || mode === null) return;
-            
-            if (!stateRef.current.isMaskSealed && mode !== 'neopuff') { 
-                setRhythmMsg("¡SELLA LA MÁSCARA!"); 
-                return; 
-            }
 
             ventPressStartRef.current = Date.now();
             stateRef.current.isVPPActive = true;
@@ -686,13 +678,27 @@
             
             if (!stateRef.current.isMaskSealed && mode === 'neopuff') {
                 setRhythmMsg("O2 FLUJO LIBRE");
+            } else if (!stateRef.current.isMaskSealed && mode === 'ambu') {
+                setRhythmMsg("¡SELLA LA MÁSCARA!");
             }
         };
 
         const handleVentEnd = (e) => {
             if (e) e.preventDefault();
             
-            if (!stateRef.current.isMaskSealed && mode !== 'neopuff') return;
+            if (!stateRef.current.isMaskSealed) {
+                if (mode === 'neopuff') {
+                    setRhythmMsg("");
+                    stateRef.current.isVPPActive = false;
+                    setIsVPPActive(false);
+                } else {
+                    stateRef.current.isVPPActive = false;
+                    setIsVPPActive(false);
+                    setTimeout(() => { setRhythmMsg(""); }, 500);
+                }
+                return;
+            }
+
             if (ventPressStartRef.current === 0 || mode === null) return;
 
             const now = Date.now();
@@ -701,7 +707,7 @@
             stateRef.current.isVPPActive = false;
             setIsVPPActive(false);
 
-            const diffSeconds = (now - stateRef.current.timestamps['lastVentClick']) / 1000;
+            const diffSeconds = (now - (stateRef.current.timestamps['lastVentClick'] || 0)) / 1000;
             stateRef.current.timestamps['lastVentClick'] = now;
             setVentCount(c => c + 1);
 
@@ -713,7 +719,6 @@
             stateRef.current.lastDeliveredPip = generatedPip;
 
             if (stateRef.current.isMaskSealed) {
-                // CORRECCIÓN: Umbral ajustado para prematuros (30) y término (40)
                 const damageThreshold = currentCase?.eg < 32 ? 30 : 40;
                 
                 if (generatedPip > damageThreshold || (mode === 'neopuff' && pressDuration > 1500)) {
@@ -743,8 +748,6 @@
                         stateRef.current.hyperventilation = false;
                     }
                 }
-            } else if (mode === 'neopuff') {
-                setRhythmMsg(""); 
             }
             setTimeout(() => { setRhythmMsg(""); }, 300);
         };
@@ -1232,7 +1235,7 @@
                         </div>
                     </div>
 
-                    {/* Área de ventilación */}
+                    {/* Área de ventilación - REESTRUCTURADA PARA EVITAR SUPERPOSICIÓN */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-8 bg-slate-950/50 rounded-3xl border border-slate-800/50">
                         <div className="flex flex-col items-center gap-6">
                             
@@ -1251,6 +1254,11 @@
                                 ) : (
                                     <div className="w-40 h-40 rounded-full border-8 border-slate-800 bg-slate-900/50 flex items-center justify-center text-[10px] text-slate-600 font-black uppercase text-center p-8 leading-tight">O2 Flujo Libre<br/>(A Distancia)</div>
                                 )}
+                                
+                                {/* Pequeño medidor vertical al costado del botón - Ahora solo muestra presión si hay sello de máscara */}
+                                <div className="absolute -right-6 top-1/2 -translate-y-1/2 h-20 w-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                                    <div className="absolute bottom-0 w-full bg-blue-500 transition-all duration-100" style={{ height: (isVPPActive && isMaskSealed) ? `${(pip/40)*100}%` : '0%' }}></div>
+                                </div>
                             </div>
                         </div>
 

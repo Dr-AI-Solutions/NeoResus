@@ -45,14 +45,6 @@
 <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // --- HERRAMIENTA DE VERSIÓN (TOC-Friendly) ---
-    const getCurrentTimeString = () => {
-        const now = new Date();
-        const date = now.toLocaleDateString('es-CL');
-        const time = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-        return `v.${date} - ${time}`;
-    };
-
     // --- ÍCONOS ---
     const CheckCircle2 = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
     const XCircle = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>;
@@ -270,7 +262,6 @@
             const draw = () => {
                 let target = 0;
                 if (mode === 'neopuff') {
-                    // PEEP dinámico si está sellado, o PIP si además aprietas. Si no está sellado, no hay presión.
                     target = isMaskSealed ? (isVPPActive ? pipSetting : peepSetting) : 0;
                 } else if (mode === 'ambu') {
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
@@ -340,23 +331,21 @@
 
         if (mode === 'ambu' && guidedMode) {
             const dangerLimit = isPremature ? 28 : 38;
-            const dangerAngleStart = dangerLimit * 3; // 60 unidades equivalen a 180 grados
+            const dangerAngleStart = dangerLimit * 3; // 60 unidades = 180 grados. 
 
-            // El truco definitivo del rotate(-90deg) hace que la matemática calce perfecta
+            // Para evitar deformaciones en Flexbox y React, el arco ahora se dibuja girando el gradiente internamente (-90deg), sin usar transform en la caja.
             const dangerArcStyle = {
-                background: `conic-gradient(from 0deg, transparent 0deg, transparent ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) 180deg, transparent 180deg)`,
-                transform: `rotate(-90deg)`
+                background: `conic-gradient(from -90deg, transparent 0deg, transparent ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) 180deg, transparent 180deg)`
             };
 
             return (
                 <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shrink-0">
                     <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative overflow-hidden">
-                        <div className="absolute inset-0 rounded-full overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-full" style={dangerArcStyle}></div>
-                            <div className="absolute inset-1.5 bg-slate-950 rounded-full z-0"></div>
-                        </div>
+                        
+                        <div className="absolute top-0 left-0 w-full h-full" style={dangerArcStyle}></div>
+                        <div className="absolute inset-1.5 bg-slate-950 rounded-full z-0"></div>
 
-                        <div ref={digitalPressRef} className="absolute top-[70%] left-1/2 -translate-x-1/2 text-xl font-black text-white z-20 leading-none">0</div>
+                        <div ref={digitalPressRef} className="absolute top-[68%] left-1/2 -translate-x-1/2 text-2xl font-black text-white z-20 leading-none">0</div>
 
                         <div ref={needleRef} className="absolute w-1 h-12 bg-white/50 origin-bottom transition-transform duration-75" style={{ bottom: '50%' }}></div>
                         <div className="w-2 h-2 bg-rose-500 rounded-full z-30"></div>
@@ -409,7 +398,7 @@
 
         const [mode, setMode] = useState(null);
         const [pip, setPip] = useState(20);
-        const [peep, setPeep] = useState(5); // Nuevo estado PEEP
+        const [peep, setPeep] = useState(5); 
         const [fio2, setFio2] = useState(21);
         const [flow, setFlow] = useState(10);
         const [isMaskSealed, setIsMaskSealed] = useState(false);
@@ -434,7 +423,7 @@
             hr: 0, spo2: 0, hrHistory: [],
             mode: null, pip: 20, peep: 5, flow: 10,
             lastDeliveredPip: 0,
-            isVPPActive: false, // Ref para control exacto del botón mantenido
+            isVPPActive: false, 
             isMaskSealed: false, timerValue: 0, stableTimer: 0,
             sopaSteps: [], thermalActions: [], drugs: [], equips: [],
             timestamps: {}, 
@@ -549,6 +538,7 @@
                     if (nt === 30 && !guidedMode) addLog("[!] ALERTA 30s: Evaluar FC y respiración.", "alert");
                     if (nt === 60 && !guidedMode) addLog("[!] MINUTO DE ORO: Si FC < 100, iniciar VPP.", "alert");
 
+                    const now = Date.now();
                     const { hr, spo2, mode: m, pip: p, flow: f, isMaskSealed: sealed,
                             sopaSteps, thermalActions, drugs, equips, pneumo, hyperventilation, lastDeliveredPip, isVPPActive } = stateRef.current;
 
@@ -636,7 +626,9 @@
                     setVitals({ hr: Math.floor(newHr), spo2: Math.floor(newSpo2) });
 
                     if (newHr === 0) setGameState('fail');
-                    if (stateRef.current.stableTimer >= 5 && nt > 60 && totalDamage === 0) setGameState('success');
+                    
+                    // VICTORIA: Ahora requiere además que la Saturación sea mayor o igual a 85% para estabilizarse.
+                    if (stateRef.current.stableTimer >= 5 && nt > 60 && totalDamage === 0 && newSpo2 >= 85) setGameState('success');
 
                     setUiToggle(p => p + 1); 
                 }, 1000);
@@ -735,7 +727,7 @@
                         if (!guidedMode && Math.random() > 0.8) addLog("Ritmo insuficiente.", "late"); 
                     }
                     else { 
-                        setRhythmMsg("RITMO CORRECTO ✓"); 
+                        if (stateRef.current.isMaskSealed) setRhythmMsg("RITMO CORRECTO ✓"); 
                         stateRef.current.hyperventilation = false;
                     }
                 }
@@ -963,7 +955,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">{getCurrentTimeString()}</span></p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">v.08/05/2026 - 20:16</span></p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
@@ -1226,7 +1218,7 @@
                         </div>
                     </div>
 
-                    {/* Área de ventilación - REESTRUCTURADA PARA EVITAR SUPERPOSICIÓN */}
+                    {/* Área de ventilación */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-10 py-8 bg-slate-950/50 rounded-3xl border border-slate-800/50">
                         <div className="flex flex-col items-center gap-6">
                             
@@ -1251,7 +1243,7 @@
                         <div className="flex flex-col items-center gap-4">
                             <Manometer mode={mode} isVPPActive={isVPPActive} isMaskSealed={isMaskSealed} pipSetting={pip} peepSetting={peep} guidedMode={guidedMode} ventPressStartRef={ventPressStartRef} isPremature={currentCase?.eg < 32} />
                             
-                            {/* Botón de sello, movido de forma limpia debajo del Manómetro */}
+                            {/* Botón de sello */}
                             {(mode === 'neopuff' || mode === 'ambu') && (
                                 <button onClick={() => {
                                     const newVal = !isMaskSealed;
@@ -1491,7 +1483,7 @@
             <div className="min-h-screen flex items-center justify-center p-8 bg-slate-950">
                 <div className="bg-slate-900 p-12 rounded-[4rem] border-4 border-emerald-600 max-w-2xl w-full shadow-2xl">
                     <h2 className="text-4xl font-black mb-6 uppercase text-emerald-500 tracking-tighter text-center">Reanimación Exitosa</h2>
-                    <p className="text-slate-400 mb-6 text-lg text-center">Paciente estabilizado con respiración espontánea.</p>
+                    <p className="text-slate-400 mb-6 text-lg text-center">Paciente estabilizado con respiración espontánea y oxigenación segura.</p>
                     <Debriefing />
                     <button onClick={() => setGameState('menu')} className="w-full mt-8 bg-emerald-600 hover:bg-emerald-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest transition-all">Finalizar Guardia</button>
                 </div>

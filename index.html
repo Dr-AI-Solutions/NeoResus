@@ -45,6 +45,11 @@
 <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // --- HERRAMIENTA DE VERSIÓN (TOC-Friendly) ---
+    const getCurrentTimeString = () => {
+        return `v.08/05/2026 - 20:54`;
+    };
+
     // --- ÍCONOS ---
     const CheckCircle2 = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
     const XCircle = ({ size=18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>;
@@ -195,11 +200,12 @@
     // COMPONENTES: BARRAS DE SIMETRÍA Y TRAMPA DE AGUA
     // =============================================================
     const LungSymmetry = ({ isVenting, pneumoState, isSpontaneous }) => {
+        // CORRECCIÓN: Clases CSS ajustadas para que la inflación siga el ritmo de la mano (700ms ease-out) y desinfle natural (300ms ease-in)
         const getLungClass = (sideState) => {
-            if (sideState === 1) return ''; 
-            if (isVenting && sideState !== 1) return ''; 
+            if (sideState === 1) return 'transition-all duration-300'; 
+            if (isVenting && sideState !== 1) return 'transition-all duration-700 ease-out'; 
             if (isSpontaneous && (sideState === 0 || sideState === 3)) return 'lung-breathe'; 
-            return '';
+            return 'transition-all duration-300 ease-in'; 
         }
 
         const getLungStyle = (sideState) => {
@@ -215,13 +221,13 @@
             <div className="flex gap-3 h-20 bg-slate-900 border border-slate-700 rounded-xl p-2 opacity-80 shadow-inner">
                 <div className="flex flex-col items-center h-full">
                     <div className="flex-1 w-3 bg-slate-800 rounded-full flex items-end overflow-hidden shadow-inner">
-                        <div className={`w-full bg-emerald-400 transition-all duration-300 ${getLungClass(pneumoState.right)}`} style={getLungStyle(pneumoState.right)}></div>
+                        <div className={`w-full bg-emerald-400 ${getLungClass(pneumoState.right)}`} style={getLungStyle(pneumoState.right)}></div>
                     </div>
                     <span className="text-[6px] font-black mt-1 text-slate-500">DER</span>
                 </div>
                 <div className="flex flex-col items-center h-full">
                     <div className="flex-1 w-3 bg-slate-800 rounded-full flex items-end overflow-hidden shadow-inner">
-                        <div className={`w-full bg-emerald-400 transition-all duration-300 ${getLungClass(pneumoState.left)}`} style={getLungStyle(pneumoState.left)}></div>
+                        <div className={`w-full bg-emerald-400 ${getLungClass(pneumoState.left)}`} style={getLungStyle(pneumoState.left)}></div>
                     </div>
                     <span className="text-[6px] font-black mt-1 text-slate-500">IZQ</span>
                 </div>
@@ -266,7 +272,8 @@
                 } else if (mode === 'ambu') {
                     if (isVPPActive && isMaskSealed && ventPressStartRef.current > 0) {
                         const dur = Date.now() - ventPressStartRef.current;
-                        target = Math.min(60, (dur / 30)); 
+                        // CORRECCIÓN: Fórmula más lenta para permitir control fino. 1 segundo = ~28 cmH2O
+                        target = Math.min(60, (dur / 35)); 
                     } else {
                         target = 0; 
                     }
@@ -305,8 +312,8 @@
 
         if (mode === null || mode === 'apagado' || mode === 'freeflow') {
             return (
-                <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative opacity-50 grayscale shrink-0">
-                    <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative">
+                <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shrink-0">
+                    <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative opacity-50 grayscale">
                         <div ref={needleRef} className="absolute w-1 h-12 bg-slate-600 origin-bottom transition-transform duration-75" style={{ bottom: '50%', transform: 'rotate(-90deg)' }}></div>
                         <div className="w-2 h-2 bg-white rounded-full z-10"></div>
                         <div className="absolute top-1 text-[7px] font-bold text-slate-500">20</div>
@@ -330,20 +337,29 @@
         }
 
         if (mode === 'ambu' && guidedMode) {
-            const dangerLimit = isPremature ? 28 : 38;
-            const dangerAngleStart = dangerLimit * 3; // 60 unidades = 180 grados. 
-
-            // Para evitar deformaciones en Flexbox y React, el arco ahora se dibuja girando el gradiente internamente (-90deg), sin usar transform en la caja.
-            const dangerArcStyle = {
-                background: `conic-gradient(from -90deg, transparent 0deg, transparent ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) ${dangerAngleStart}deg, rgba(239, 68, 68, 0.4) 180deg, transparent 180deg)`
-            };
+            // CORRECCIÓN: Umbrales adaptables reales (30 para prematuros, 40 para término)
+            const dangerLimit = isPremature ? 30 : 40; 
+            
+            // CORRECCIÓN MAGISTRAL: Gráfico Vectorial (SVG) en vez de CSS. 
+            // Esto jamás se deformará con Flexbox porque es geometría pura.
+            const dashArray = 125.66; // Circunferencia exacta para r=40 (PI * 40)
+            const emptyLength = dashArray * (dangerLimit / 60);
+            const redLength = dashArray - emptyLength;
 
             return (
                 <div className="flex flex-col items-center p-4 bg-slate-900 border border-slate-800 rounded-3xl w-36 h-36 relative shrink-0">
                     <div className="w-28 h-28 shrink-0 border-4 border-slate-700 rounded-full flex items-center justify-center bg-slate-950 relative overflow-hidden">
                         
-                        <div className="absolute top-0 left-0 w-full h-full" style={dangerArcStyle}></div>
-                        <div className="absolute inset-1.5 bg-slate-950 rounded-full z-0"></div>
+                        {/* Arco SVG a prueba de deformaciones */}
+                        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible">
+                            <path
+                                d="M 10 50 A 40 40 0 0 1 90 50"
+                                fill="none"
+                                stroke="rgba(239, 68, 68, 0.45)"
+                                strokeWidth="8"
+                                strokeDasharray={`0 ${emptyLength} ${redLength} 0`}
+                            />
+                        </svg>
 
                         <div ref={digitalPressRef} className="absolute top-[68%] left-1/2 -translate-x-1/2 text-2xl font-black text-white z-20 leading-none">0</div>
 
@@ -542,8 +558,9 @@
                     const { hr, spo2, mode: m, pip: p, flow: f, isMaskSealed: sealed,
                             sopaSteps, thermalActions, drugs, equips, pneumo, hyperventilation, lastDeliveredPip, isVPPActive } = stateRef.current;
 
-                    const isVenting = isVPPActive && sealed && (m === 'neopuff' || m === 'ambu');
-                    const isNeoPuffFreeFlow = isVPPActive && !sealed && m === 'neopuff';
+                    const timeSinceLastVent = now - stateRef.current.timestamps['lastVentClick'];
+                    const isVenting = timeSinceLastVent < 2500 && sealed && (m === 'neopuff' || m === 'ambu');
+                    const isNeoPuffFreeFlow = timeSinceLastVent < 2500 && !sealed && m === 'neopuff';
 
                     let hrChange = -0.5;
                     let spo2Change = -0.5;
@@ -578,19 +595,23 @@
 
                         if (isVenting) {
                             if (f < 8 && m === 'neopuff') {
-                                hrChange -= 1.0;
+                                hrChange -= 0.5;
                             } else {
                                 const effectivePip = m === 'ambu' ? lastDeliveredPip : p;
                                 const effective = currentCase?.eg < 32
-                                    ? (effectivePip >= 25 || sopaSteps.includes('P') || sopaSteps.includes('A'))
+                                    ? (effectivePip >= 24 || sopaSteps.includes('P') || sopaSteps.includes('A'))
                                     : true;
 
                                 if (effective && !hyperventilation) {
-                                    hrChange = 2.0; spo2Change = 1.0;
-                                    if (currentCase?.eg < 32 && drugs.includes('surfactante')) hrChange += 1.5;
-                                    if (drugs.includes('adrenalina') && equips.includes('umbilical')) hrChange += 3.0;
+                                    hrChange = 1.0; spo2Change = 0.5; 
+                                    if (currentCase?.eg < 32 && drugs.includes('surfactante')) {
+                                        hrChange += 0.5; spo2Change += 0.5;
+                                    }
+                                    if (drugs.includes('adrenalina') && equips.includes('umbilical')) {
+                                        hrChange += 1.5; 
+                                    }
                                 } else if (!effective) {
-                                    hrChange = 0; spo2Change = 0;
+                                    hrChange = -0.5; spo2Change = -0.2; 
                                 }
                             }
                         } else if (m === 'freeflow' || isNeoPuffFreeFlow) {
@@ -626,8 +647,6 @@
                     setVitals({ hr: Math.floor(newHr), spo2: Math.floor(newSpo2) });
 
                     if (newHr === 0) setGameState('fail');
-                    
-                    // VICTORIA: Ahora requiere además que la Saturación sea mayor o igual a 85% para estabilizarse.
                     if (stateRef.current.stableTimer >= 5 && nt > 60 && totalDamage === 0 && newSpo2 >= 85) setGameState('success');
 
                     setUiToggle(p => p + 1); 
@@ -673,15 +692,7 @@
         const handleVentEnd = (e) => {
             if (e) e.preventDefault();
             
-            if (!stateRef.current.isMaskSealed) {
-                if (mode === 'neopuff') {
-                    setRhythmMsg("");
-                    stateRef.current.isVPPActive = false;
-                    setIsVPPActive(false);
-                }
-                return;
-            }
-
+            if (!stateRef.current.isMaskSealed && mode !== 'neopuff') return;
             if (ventPressStartRef.current === 0 || mode === null) return;
 
             const now = Date.now();
@@ -696,13 +707,14 @@
 
             let generatedPip = pip; 
             if (mode === 'ambu') {
-                generatedPip = Math.min(60, (pressDuration / 30)); 
+                generatedPip = Math.min(60, (pressDuration / 35)); 
             }
             
             stateRef.current.lastDeliveredPip = generatedPip;
 
             if (stateRef.current.isMaskSealed) {
-                const damageThreshold = currentCase?.eg < 32 ? 28 : 38;
+                // CORRECCIÓN: Umbral ajustado para prematuros (30) y término (40)
+                const damageThreshold = currentCase?.eg < 32 ? 30 : 40;
                 
                 if (generatedPip > damageThreshold || (mode === 'neopuff' && pressDuration > 1500)) {
                     const pneumo = stateRef.current.pneumo;
@@ -731,6 +743,8 @@
                         stateRef.current.hyperventilation = false;
                     }
                 }
+            } else if (mode === 'neopuff') {
+                setRhythmMsg(""); 
             }
             setTimeout(() => { setRhythmMsg(""); }, 300);
         };
@@ -955,7 +969,7 @@
                     <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </div>
                 <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter text-white">NeoResus Master Pro</h1>
-                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">v.08/05/2026 - 20:16</span></p>
+                <p className="text-slate-500 mb-8 italic max-w-xs text-sm">Simulador ECOE — Alta Fidelidad 2026 <br/><span className="text-[10px] text-slate-600">{getCurrentTimeString()}</span></p>
 
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] w-full max-w-sm mb-8 flex flex-col items-center gap-4">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Nivel de Simulación</span>
